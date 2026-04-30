@@ -1,0 +1,7 @@
+anthropic
+requests
+python-dotenv
+streamlit
+yfinance
+groq
+tavily-python
