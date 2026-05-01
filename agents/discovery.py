@@ -7,6 +7,7 @@ import yfinance as yf
 import pandas as pd
 from groq import Groq
 from tavily import TavilyClient
+from agents.guardrails import check_security_type
 
 
 # -- Constants -----------------------------------------------------------------
@@ -459,6 +460,18 @@ def run(company_name: str) -> dict:
 
     # Step 1 -- ticker resolution
     ticker = _resolve_ticker(company_name)
+
+    # Step 1b -- security type check (Guardrail 1: fatal)
+    try:
+        _info = yf.Ticker(ticker).info
+        error = check_security_type(ticker, _info)
+        if error:
+            print(f"\n{error}")
+            sys.exit(1)
+    except SystemExit:
+        raise
+    except Exception:
+        pass  # if yfinance can't return info, let the pipeline continue
 
     # Step 2 -- financial data
     print(f"  [2/3] Fetching financial data for {ticker}...")
