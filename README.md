@@ -144,3 +144,34 @@ atlas-agent/
 - FCF from yfinance is unreliable for fintech and financial companies due to customer float; Atlas flags this automatically.
 - Groq free tier: 100k tokens/day shared across all calls.
 - P/E ratios are occasionally missing from FMP for companies reporting losses; BMP Q5 will flag for manual review in these cases.
+
+---
+
+## Roadmap
+
+### Guardrails
+- [ ] **Input validation** — reject tickers or company names that resolve to ETFs, SPACs, or shell companies before running the full pipeline
+- [ ] **Score sanity checks** — detect and warn when Groq returns all YES or all NO (signs of hallucination or prompt collapse)
+- [ ] **Data sufficiency gate** — if fewer than 2 years of financial history are available, block Fisher and Selection stages and surface a clear warning rather than scoring on thin data
+- [ ] **FCF guardrail generalisation** — extend the financial company float detection beyond fintech to REITs, insurance, and banks, each of which distort FCF in different ways
+
+### Evals
+- [ ] **Scoring consistency eval** — run the same company through the pipeline 5 times and measure variance in BMP, Fisher, and Selection scores; flag if standard deviation exceeds 0.5 points
+- [ ] **Prompt regression suite** — build a small set of known-answer companies (e.g. Berkshire = high scores, a failed company = low scores) and run them as a regression test after any prompt change
+- [ ] **Parser coverage eval** — log any section that returns the default fallback value ("No response parsed", "N/A") and track the rate over time as a signal of prompt or model drift
+- [ ] **Historical backtest** — compare Atlas position size recommendations against actual 3-year returns for a sample of companies to measure whether Diamond companies outperform Egg companies
+
+### RAG / Knowledge Retrieval
+- [ ] **Annual report ingestion** — allow the user to drop a PDF annual report into `data/reports/` and have Atlas chunk and embed it, then retrieve relevant passages during Fisher and thesis writing instead of relying solely on Tavily web search
+- [ ] **Earnings call transcripts** — ingest the last 2–4 earnings call transcripts per company to improve scoring of Fisher P14 (management transparency) and P8 (executive relations) with direct quote evidence
+- [ ] **Sector knowledge base** — build a small vector store of sector-level context (e.g. payment industry dynamics, cybersecurity TAM data) so Atlas can ground its analysis in stable reference material rather than live web results that may be noisy
+
+### Fine-tuning
+- [ ] **Scoring calibration** — after accumulating 50+ thesis JSON files, fine-tune a smaller model on (company data → score) pairs to reduce token usage and improve scoring consistency
+- [ ] **Thesis style fine-tune** — collect examples of high-quality investment memos and fine-tune the thesis writer to match that style, reducing the generic LLM tone in the executive summary and recommendation sections
+
+### LLM as a Judge
+- [ ] **Score justification auditor** — after each Groq scoring call, run a second LLM pass that checks whether the reasoning given for each score is consistent with the data provided; flag scores where the reasoning contradicts the input
+- [ ] **Bull/bear balance check** — use an LLM judge to verify that the bear case in the thesis is not a watered-down version of the bull case; penalise theses where all three bear points are mild or speculative
+- [ ] **Thesis coherence check** — run the final thesis through a judge that checks whether the DECISION (INVEST / WATCHLIST / PASS) is consistent with the scores and risk category; surface a warning if the decision contradicts the quantitative output
+- [ ] **Cross-stage consistency** — verify that the risk scoring agent's conviction level is consistent with the Fisher and Selection scores; a LOW conviction Diamond should not emerge from near-perfect Fisher scores without an explanation
