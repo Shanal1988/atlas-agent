@@ -506,6 +506,18 @@ def run(profile: dict, bmp_result: dict,
 
     print(formatted)
 
+    from agents.judge import check_bull_bear_balance, check_thesis_coherence, print_judge
+    bear_r = check_bull_bear_balance(
+        company, [sections["BEAR_1"], sections["BEAR_2"], sections["BEAR_3"]]
+    )
+    print_judge(bear_r, company)
+
+    coherence_r = check_thesis_coherence(
+        company, sections["DECISION"],
+        bmp_result, fisher_result, selection_result, risk_result,
+    )
+    print_judge(coherence_r, company)
+
     json_path, txt_path = _save(
         ticker, today_str, profile, bmp_result, fisher_result,
         selection_result, risk_result, sections, formatted,

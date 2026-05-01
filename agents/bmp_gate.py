@@ -217,4 +217,8 @@ def run(profile: dict) -> dict:
 
     _print_gate(profile, answers, score, verdict)
 
+    from agents.judge import audit_score_justification, print_judge
+    judge_r = audit_score_justification("BMP", context, answers)
+    print_judge(judge_r, profile.get("name", ""))
+
     return {"answers": answers, "score": score, "verdict": verdict}

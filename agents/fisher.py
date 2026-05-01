@@ -313,4 +313,8 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
 
     _print_fisher(profile, points, total)
 
+    from agents.judge import audit_score_justification, print_judge
+    judge_r = audit_score_justification("FISHER", profile_ctx, points)
+    print_judge(judge_r, company)
+
     return {"points": points, "total": total, "rating": rating, "evidence": evidence}

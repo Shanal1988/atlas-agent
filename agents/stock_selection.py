@@ -448,6 +448,10 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
 
     _print_results(profile, answers, score, extra)
 
+    from agents.judge import audit_score_justification, print_judge
+    judge_r = audit_score_justification("SELECTION", context, answers)
+    print_judge(judge_r, company)
+
     return {
         "answers": answers,
         "score":   score,

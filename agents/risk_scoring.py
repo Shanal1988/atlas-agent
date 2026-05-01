@@ -396,7 +396,7 @@ def run(profile: dict, bmp_result: dict,
         category, alloc_label, conviction, position_pct, summary,
     )
 
-    return {
+    result = {
         "factors":       factors,
         "total_penalty": total_penalty,
         "base_nos":      base_nos,
@@ -407,3 +407,9 @@ def run(profile: dict, bmp_result: dict,
         "position_pct":  position_pct,
         "summary":       summary,
     }
+
+    from agents.judge import check_cross_stage_consistency, print_judge
+    judge_r = check_cross_stage_consistency(fisher_result, selection_result, result)
+    print_judge(judge_r, company)
+
+    return result
