@@ -68,9 +68,14 @@ def _search(query: str, max_results: int = 4) -> str:
     )
 
 
-def _gather_evidence(company: str) -> str:
-    """Five batched Tavily searches covering all 15 Fisher points."""
-    searches = {
+def _gather_evidence(company: str, ticker: str = "") -> str:
+    """
+    Five batched Tavily searches covering all 15 Fisher points.
+    If RAG documents are indexed for the ticker, prepends retrieved evidence
+    from annual reports, earnings transcripts, and sector KB before the
+    live Tavily results. Falls back to Tavily-only if RAG is unavailable.
+    """
+    tavily_queries = {
         "Market expansion & R&D pipeline (P1-P3)":
             f"{company} market expansion R&D pipeline new products",
         "Employee & customer satisfaction (P4, P7)":
@@ -83,12 +88,48 @@ def _gather_evidence(company: str) -> str:
             f"{company} competitive position long term strategy share dilution management integrity shareholder",
     }
 
-    sections = []
-    for label, query in searches.items():
+    # Tavily evidence (always runs)
+    tavily_sections = []
+    for label, query in tavily_queries.items():
         content = _search(query)
-        sections.append(f"=== {label} ===\n{content}")
+        tavily_sections.append(f"=== {label} ===\n{content}")
+    tavily_combined = "\n\n".join(tavily_sections)
 
-    return "\n\n".join(sections)
+    # RAG evidence (runs only when documents are indexed for the ticker)
+    if ticker:
+        try:
+            from agents.rag import has_documents, retrieve
+            if has_documents(ticker):
+                rag_queries = [
+                    ("Market expansion & R&D pipeline (P1-P3)",
+                     f"market expansion new products R&D pipeline growth"),
+                    ("Employee & customer satisfaction (P4, P7)",
+                     f"employee satisfaction retention customer reviews NPS"),
+                    ("Profit margins & operational efficiency (P5-P6)",
+                     f"profit margins operating efficiency cost controls"),
+                    ("Management team, leadership depth (P8-P10)",
+                     f"management team CFO leadership succession depth"),
+                    ("Strategy, dilution, integrity (P11-P15)",
+                     f"competitive strategy long term dilution management integrity"),
+                ]
+                rag_sections = []
+                for label, query in rag_queries:
+                    content = retrieve(ticker, query)
+                    if content:
+                        rag_sections.append(f"=== {label} ===\n{content}")
+
+                if rag_sections:
+                    rag_combined = "\n\n".join(rag_sections)
+                    return (
+                        "=== RAG Evidence (Annual Reports / Transcripts / Sector KB) ===\n\n"
+                        + rag_combined
+                        + "\n\n=== Live Web Search (Tavily) ===\n\n"
+                        + tavily_combined
+                    )
+        except Exception:
+            pass
+
+    return tavily_combined
 
 
 # -- Profile context -----------------------------------------------------------
@@ -261,7 +302,7 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     print(f"\n  [Fisher] Gathering evidence for {company}...")
 
     profile_ctx = _profile_context(profile)
-    evidence    = _gather_evidence(company)
+    evidence    = _gather_evidence(company, ticker=profile.get("ticker", ""))
 
     print("  [Fisher] Scoring 15 points via Groq...")
     raw = _score_with_groq(company, profile_ctx, evidence)

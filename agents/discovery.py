@@ -510,4 +510,15 @@ def run(company_name: str) -> dict:
     # Compute and store CAGR so downstream stages (e.g. BMP gate) can read it
     profile["revenue_cagr"] = _revenue_cagr(profile.get("revenues") or [])
     _print_profile(profile)
+
+    # Auto-index any documents for this ticker (RAG — no-op if libs not installed)
+    try:
+        from agents.rag import auto_index
+        auto_index(
+            profile.get("ticker", ""),
+            f"{profile.get('sector', '')} {profile.get('industry', '')}",
+        )
+    except Exception:
+        pass
+
     return profile

@@ -5,3 +5,9 @@ streamlit
 yfinance
 groq
 tavily-python
+
+# Optional — RAG layer (annual reports, transcripts, sector KB)
+# Install to enable: pip install chromadb sentence-transformers pypdf
+chromadb
+sentence-transformers
+pypdf
