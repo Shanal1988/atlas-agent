@@ -7,3 +7,5 @@ evals/cache/
 data/reports/
 data/transcripts/
 data/vectorstore/
+fine_tuning/training_data/
+data/style_examples/

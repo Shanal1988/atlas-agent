@@ -8,6 +8,26 @@ from groq import Groq
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
+
+def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
+    """Use fine-tuned OpenAI model if OPENAI_FT_SELECTION_MODEL is set, else Groq."""
+    ft_model = os.environ.get("OPENAI_FT_SELECTION_MODEL")
+    if ft_model:
+        try:
+            from openai import OpenAI
+            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
+                model=ft_model, messages=messages,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"  [Warning] OpenAI Selection model failed ({e}), falling back to Groq.")
+    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+        model=GROQ_MODEL, messages=messages,
+        max_tokens=max_tokens, temperature=temperature,
+    )
+    return resp.choices[0].message.content
+
 _SELECTION_SYSTEM = (
     "You are a rigorous long-term equity analyst running a stock selection checklist "
     "for a disciplined value-growth investor. "
@@ -40,7 +60,7 @@ Q8 FREE CASH FLOW:       Does the company generate strong and consistent free ca
 
 # -- Financial company detection -----------------------------------------------
 
-_FINANCIAL_SECTORS = {"Financial Services"}
+_FINANCIAL_SECTORS = {"Financial Services", "Real Estate"}
 _FINANCIAL_FINTECH_KEYWORDS = {
     "payment", "fintech", "financial technology", "banking",
     "insurance", "credit services", "capital markets", "money transfer",
@@ -289,13 +309,11 @@ def _build_context(profile: dict, extra: dict) -> str:
 # -- Groq scoring --------------------------------------------------------------
 
 def _score_with_groq(context: str) -> str:
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
     user_msg = (
         f"Company data and computed metrics:\n{context}\n\n"
         f"Score these 8 checklist questions:\n{_CHECKLIST_QUESTIONS}"
     )
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
+    return _call_llm(
         messages=[
             {"role": "system", "content": _SELECTION_SYSTEM},
             {"role": "user",   "content": user_msg},
@@ -303,7 +321,6 @@ def _score_with_groq(context: str) -> str:
         max_tokens=768,
         temperature=0.1,
     )
-    return response.choices[0].message.content
 
 
 # -- Parser --------------------------------------------------------------------

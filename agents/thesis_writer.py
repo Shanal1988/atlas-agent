@@ -9,17 +9,40 @@ from groq import Groq
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
+
+def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
+    """Use fine-tuned OpenAI model if OPENAI_FT_THESIS_MODEL is set, else Groq."""
+    ft_model = os.environ.get("OPENAI_FT_THESIS_MODEL")
+    if ft_model:
+        try:
+            from openai import OpenAI
+            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
+                model=ft_model, messages=messages,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"  [Warning] OpenAI Thesis model failed ({e}), falling back to Groq.")
+    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+        model=GROQ_MODEL, messages=messages,
+        max_tokens=max_tokens, temperature=temperature,
+    )
+    return resp.choices[0].message.content
+
 _FINANCIAL_FINTECH_KEYWORDS = {
     "payment", "fintech", "financial technology", "banking",
     "insurance", "credit services", "capital markets", "money transfer",
 }
 
 
+_FINANCIAL_SECTORS = {"Financial Services", "Real Estate"}
+
+
 def _is_financial_company(profile: dict) -> bool:
     sector      = (profile.get("sector") or "").strip()
     industry    = (profile.get("industry") or "").lower()
     description = (profile.get("description") or "").lower()
-    if sector == "Financial Services":
+    if sector in _FINANCIAL_SECTORS:
         return True
     return any(kw in f"{industry} {description}" for kw in _FINANCIAL_FINTECH_KEYWORDS)
 
@@ -185,9 +208,7 @@ def _build_context(profile: dict, bmp_result: dict,
 # -- Groq call -----------------------------------------------------------------
 
 def _write_thesis_sections(context: str) -> str:
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
+    return _call_llm(
         messages=[
             {"role": "system", "content": _THESIS_SYSTEM},
             {"role": "user",   "content": context},
@@ -195,7 +216,6 @@ def _write_thesis_sections(context: str) -> str:
         max_tokens=1500,
         temperature=0.15,
     )
-    return response.choices[0].message.content
 
 
 # -- Parser --------------------------------------------------------------------
@@ -396,8 +416,10 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             "sector":               profile.get("sector"),
             "industry":             profile.get("industry"),
             "market_cap":           profile.get("market_cap"),
+            "current_price":        profile.get("current_price"),
             "pe_ratio":             profile.get("pe_ratio"),
             "revenue_cagr":         profile.get("revenue_cagr"),
+            "revenues":             profile.get("revenues"),
             "free_cash_flow":       profile.get("free_cash_flow"),
             "roe":                  profile.get("roe"),
             "insider_ownership_pct": profile.get("insider_ownership_pct"),
@@ -413,9 +435,10 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
                 "answers": bmp_result.get("answers", []),
             },
             "fisher": {
-                "total":  fisher_result.get("total") if fisher_result else None,
-                "rating": fisher_result.get("rating") if fisher_result else None,
-                "points": fisher_result.get("points", []) if fisher_result else [],
+                "total":    fisher_result.get("total") if fisher_result else None,
+                "rating":   fisher_result.get("rating") if fisher_result else None,
+                "points":   fisher_result.get("points", []) if fisher_result else [],
+                "evidence": fisher_result.get("evidence") if fisher_result else None,
             },
             "selection": {
                 "score":   selection_result.get("score") if selection_result else None,

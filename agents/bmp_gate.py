@@ -4,6 +4,26 @@ import os
 from groq import Groq
 
 
+def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
+    """Use fine-tuned OpenAI model if OPENAI_FT_BMP_MODEL is set, else Groq."""
+    ft_model = os.environ.get("OPENAI_FT_BMP_MODEL")
+    if ft_model:
+        try:
+            from openai import OpenAI
+            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
+                model=ft_model, messages=messages,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"  [Warning] OpenAI BMP model failed ({e}), falling back to Groq.")
+    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+        model=GROQ_MODEL, messages=messages,
+        max_tokens=max_tokens, temperature=temperature,
+    )
+    return resp.choices[0].message.content
+
+
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 _BMP_SYSTEM = (
@@ -177,16 +197,13 @@ def run(profile: dict) -> dict:
     Run the BMP gate against a CompanyProfile dict.
     Returns a result dict with keys: answers, score, verdict.
     """
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-
     context = _profile_context(profile)
     user_msg = (
         f"Company data:\n{context}\n\n"
         f"Answer the following BMP checklist questions:\n{_BMP_QUESTIONS}"
     )
 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
+    raw = _call_llm(
         messages=[
             {"role": "system", "content": _BMP_SYSTEM},
             {"role": "user",   "content": user_msg},
@@ -194,8 +211,6 @@ def run(profile: dict) -> dict:
         max_tokens=512,
         temperature=0.1,
     )
-
-    raw = response.choices[0].message.content
     answers = _parse_answers(raw)
     score   = _score(answers)
     verdict = _verdict(score)

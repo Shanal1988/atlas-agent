@@ -313,4 +313,4 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
 
     _print_fisher(profile, points, total)
 
-    return {"points": points, "total": total, "rating": rating}
+    return {"points": points, "total": total, "rating": rating, "evidence": evidence}

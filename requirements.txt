@@ -6,6 +6,10 @@ yfinance
 groq
 tavily-python
 
+# Optional — fine-tuning (OpenAI fine-tune jobs and opt-in inference)
+# Install to enable: pip install openai
+openai
+
 # Optional — RAG layer (annual reports, transcripts, sector KB)
 # Install to enable: pip install chromadb sentence-transformers pypdf
 chromadb

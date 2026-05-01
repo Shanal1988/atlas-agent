@@ -6,6 +6,26 @@ from groq import Groq
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
+
+def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
+    """Use fine-tuned OpenAI model if OPENAI_FT_RISK_MODEL is set, else Groq."""
+    ft_model = os.environ.get("OPENAI_FT_RISK_MODEL")
+    if ft_model:
+        try:
+            from openai import OpenAI
+            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
+                model=ft_model, messages=messages,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"  [Warning] OpenAI Risk model failed ({e}), falling back to Groq.")
+    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+        model=GROQ_MODEL, messages=messages,
+        max_tokens=max_tokens, temperature=temperature,
+    )
+    return resp.choices[0].message.content
+
 # (name, lo_nos, hi_nos, label, lo_pct, hi_pct)
 _CATEGORIES = [
     ("Diamond", 0,  5,  "6-10%",  6.0,  10.0),
@@ -174,13 +194,11 @@ def _build_context(profile: dict, bmp_result: dict,
 # -- Groq calls ----------------------------------------------------------------
 
 def _score_risk_factors(context: str) -> str:
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
     user_msg = (
         f"Company data and prior stage results:\n{context}\n\n"
         f"Assess these 5 risk factors:\n{_RISK_QUESTIONS}"
     )
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
+    return _call_llm(
         messages=[
             {"role": "system", "content": _RISK_SYSTEM},
             {"role": "user",   "content": user_msg},
@@ -188,7 +206,6 @@ def _score_risk_factors(context: str) -> str:
         max_tokens=512,
         temperature=0.1,
     )
-    return response.choices[0].message.content
 
 
 def _get_summary(context: str, risk_lines: list[str], category: str,
