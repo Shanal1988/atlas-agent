@@ -396,7 +396,8 @@ def _format_thesis(profile: dict, bmp_result: dict,
 
 def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
           fisher_result: dict | None, selection_result: dict | None,
-          risk_result: dict, sections: dict, formatted: str) -> tuple[str, str]:
+          risk_result: dict, sections: dict, formatted: str,
+          judge_flags: dict | None = None) -> tuple[str, str]:
     Path("data/theses").mkdir(parents=True, exist_ok=True)
 
     safe_ticker = ticker.replace(".", "_")
@@ -455,8 +456,10 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
                 "adjusted_nos":  risk_result.get("adjusted_nos"),
                 "factors":       risk_result.get("factors", []),
                 "summary":       risk_result.get("summary"),
+                "penalty_floors": risk_result.get("penalty_floors", []),
             },
         },
+        "judge_flags": judge_flags or {},
         "thesis": {
             "executive_summary":   sections["EXECUTIVE_SUMMARY"],
             "bull_case":           [sections["BULL_1"], sections["BULL_2"], sections["BULL_3"]],
@@ -507,6 +510,7 @@ def run(profile: dict, bmp_result: dict,
     print(formatted)
 
     from agents.judge import check_bull_bear_balance, check_thesis_coherence, print_judge
+
     bear_r = check_bull_bear_balance(
         company, [sections["BEAR_1"], sections["BEAR_2"], sections["BEAR_3"]]
     )
@@ -518,9 +522,22 @@ def run(profile: dict, bmp_result: dict,
     )
     print_judge(coherence_r, company)
 
+    # Option #8 -- collect all judge flags for audit trail in JSON
+    judge_flags: dict = {}
+    if bmp_result.get("judge"):
+        judge_flags["score_justification_bmp"] = bmp_result["judge"].asdict()
+    if fisher_result and fisher_result.get("judge"):
+        judge_flags["score_justification_fisher"] = fisher_result["judge"].asdict()
+    if selection_result and selection_result.get("judge"):
+        judge_flags["score_justification_selection"] = selection_result["judge"].asdict()
+    if risk_result.get("judge"):
+        judge_flags["cross_stage_consistency"] = risk_result["judge"].asdict()
+    judge_flags["bull_bear_balance"]  = bear_r.asdict()
+    judge_flags["thesis_coherence"]   = coherence_r.asdict()
+
     json_path, txt_path = _save(
         ticker, today_str, profile, bmp_result, fisher_result,
-        selection_result, risk_result, sections, formatted,
+        selection_result, risk_result, sections, formatted, judge_flags,
     )
 
     print(f"  [Thesis] Saved: {json_path}")

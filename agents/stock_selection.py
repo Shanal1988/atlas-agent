@@ -456,4 +456,5 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
         "answers": answers,
         "score":   score,
         "verdict": _verdict(score),
+        "judge":   judge_r,
     }

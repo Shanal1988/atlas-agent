@@ -221,4 +221,4 @@ def run(profile: dict) -> dict:
     judge_r = audit_score_justification("BMP", context, answers)
     print_judge(judge_r, profile.get("name", ""))
 
-    return {"answers": answers, "score": score, "verdict": verdict}
+    return {"answers": answers, "score": score, "verdict": verdict, "judge": judge_r}

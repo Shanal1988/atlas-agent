@@ -351,6 +351,55 @@ def _print_results(profile: dict,
     print(f"\n{'=' * W}\n")
 
 
+# -- Penalty floors (Option #1) ------------------------------------------------
+
+_REGULATED_SECTORS = {"Financial Services", "Healthcare", "Utilities", "Energy"}
+
+
+def _apply_penalty_floors(factors: list, profile: dict) -> tuple[list, list]:
+    """
+    Apply data-driven minimum penalty floors after Groq scoring.
+    Rules:
+      R1 Valuation Risk  -- P/E > 50 -> min penalty 1
+      R3 Regulatory Risk -- regulated sector -> min penalty 1
+      R5 Currency Risk   -- non-UK stock -> min penalty 1
+    Returns (updated factors, list of note strings for any floors applied).
+    """
+    notes: list = []
+    by_key = {f["key"]: f for f in factors}
+
+    # R1 -- Valuation Risk
+    pe = profile.get("pe_ratio")
+    if pe and isinstance(pe, (int, float)) and pe > 50:
+        r1 = by_key.get("R1")
+        if r1 and r1["penalty"] < 1:
+            r1["penalty"] = 1
+            r1["reasoning"] += f" [Floor: P/E {pe:.0f} > 50]"
+            notes.append(f"R1 Valuation Risk raised to 1 (P/E {pe:.0f} > 50 threshold)")
+
+    # R3 -- Regulatory Risk
+    sector = (profile.get("sector") or "").strip()
+    if sector in _REGULATED_SECTORS:
+        r3 = by_key.get("R3")
+        if r3 and r3["penalty"] < 1:
+            r3["penalty"] = 1
+            r3["reasoning"] += f" [Floor: {sector} sector]"
+            notes.append(f"R3 Regulatory Risk raised to 1 ({sector} sector)")
+
+    # R5 -- Currency Risk
+    ticker   = (profile.get("ticker") or "")
+    exchange = (profile.get("exchange") or "").lower()
+    is_uk    = ticker.endswith(".L") or "london" in exchange
+    if not is_uk:
+        r5 = by_key.get("R5")
+        if r5 and r5["penalty"] < 1:
+            r5["penalty"] = 1
+            r5["reasoning"] += " [Floor: non-UK stock]"
+            notes.append(f"R5 Currency Risk raised to 1 (non-UK stock: {ticker})")
+
+    return factors, notes
+
+
 # -- Entry point ---------------------------------------------------------------
 
 def run(profile: dict, bmp_result: dict,
@@ -375,11 +424,27 @@ def run(profile: dict, bmp_result: dict,
     raw      = _score_risk_factors(context)
     factors, conviction = _parse_risk_factors(raw)
 
+    # Option #1 -- hard minimum penalty floors
+    factors, floor_notes = _apply_penalty_floors(factors, profile)
+    if floor_notes:
+        print(f"\n  [GUARDRAIL] Penalty floors applied:")
+        for note in floor_notes:
+            print(f"    -- {note}")
+
     total_penalty = sum(f["penalty"] for f in factors)
     adjusted_nos  = base_nos + total_penalty
 
     category, alloc_label, lo_pct, hi_pct = _get_category(adjusted_nos)
     position_pct = _position_size(category, lo_pct, hi_pct, conviction)
+
+    # Option #4 -- Gold cap when Fisher and Selection were both skipped
+    if fisher_result is None and selection_result is None and category == "Diamond":
+        category, alloc_label, lo_pct, hi_pct = "Gold", "4-6%", 4.0, 6.0
+        position_pct = _position_size(category, lo_pct, hi_pct, conviction)
+        print(
+            f"\n  [GUARDRAIL] Category capped: Diamond -> Gold\n"
+            f"  Fisher and Selection not run -- Diamond requires evidence from all 3 stages."
+        )
 
     risk_lines = [
         f"{f['label']}: [{f['penalty']}] {f['reasoning']}" for f in factors
@@ -406,10 +471,12 @@ def run(profile: dict, bmp_result: dict,
         "conviction":    conviction,
         "position_pct":  position_pct,
         "summary":       summary,
+        "penalty_floors": floor_notes,
     }
 
     from agents.judge import check_cross_stage_consistency, print_judge
     judge_r = check_cross_stage_consistency(fisher_result, selection_result, result)
     print_judge(judge_r, company)
+    result["judge"] = judge_r
 
     return result

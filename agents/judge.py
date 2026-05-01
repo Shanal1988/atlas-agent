@@ -21,6 +21,9 @@ class JudgeResult:
     severity: str           # "INFO" | "WARN" | "FAIL"
     flags:    list = field(default_factory=list)
 
+    def asdict(self) -> dict:
+        return {"passed": self.passed, "severity": self.severity, "flags": list(self.flags)}
+
 
 # -- Shared printer ------------------------------------------------------------
 

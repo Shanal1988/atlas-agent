@@ -317,4 +317,4 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     judge_r = audit_score_justification("FISHER", profile_ctx, points)
     print_judge(judge_r, company)
 
-    return {"points": points, "total": total, "rating": rating, "evidence": evidence}
+    return {"points": points, "total": total, "rating": rating, "evidence": evidence, "judge": judge_r}
