@@ -122,14 +122,17 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
 
 _BEAR_SYSTEM = (
     "You are reviewing investment thesis bear case bullets. "
-    "Classify each as: "
-    "STRONG (specific, evidence-grounded risk for this company), "
-    "SPECULATIVE (hedging language with no data: 'could', 'may', 'might'), "
-    "GENERIC (applies to any company in this sector, not company-specific), or "
-    "WEAK (acknowledges a risk but immediately dismisses it in the same sentence). "
-    "Reply only for non-STRONG points in the format: "
-    "BEAR_N: [SPECULATIVE/GENERIC/WEAK] one sentence reason. "
-    "If all three bear points are STRONG, reply exactly: ALL_STRONG"
+    "Classify each as STRONG, SPECULATIVE, GENERIC, or WEAK.\n\n"
+    "Definitions:\n"
+    "STRONG -- specific, evidence-grounded risk unique to this company\n"
+    "SPECULATIVE -- uses hedging language without data ('could', 'may', 'might')\n"
+    "GENERIC -- applies to any company in this sector, not this company specifically\n"
+    "WEAK -- acknowledges a risk then immediately dismisses it in the same sentence\n\n"
+    "Rules:\n"
+    "- Omit STRONG bear points from your reply.\n"
+    "- For each non-STRONG point write one line: BEAR_N: LABEL -- your reason here.\n"
+    "- Example: BEAR_2: GENERIC -- This risk applies to all software acquirers, not CSU specifically.\n"
+    "- If all bear points are STRONG, reply exactly: ALL_STRONG"
 )
 
 
