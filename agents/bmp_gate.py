@@ -34,8 +34,16 @@ _BMP_SYSTEM = (
 )
 
 _BMP_QUESTIONS = """
-Q1 BUSINESS: Does the company have a low market share of a large and growing market with an identifiable competitive advantage?
-Criteria: market share < 30%, growing TAM, clear moat identified. If market share is unknown, infer from sector context and company size vs TAM.
+Q1 BUSINESS: Does the company have at least one significant business segment with meaningful runway in a large, growing market and an identifiable competitive advantage?
+
+Evaluate each significant segment separately. A segment is significant if it represents >15% of revenue, is growing >20% annually, or is an explicitly stated strategic priority (e.g. a new platform bet).
+For each significant segment estimate: market share, TAM size and growth direction, and competitive moat.
+
+YES    -- At least one significant segment has <10% share of a growing TAM (>$20B) with a clear moat. Do not disqualify the company because a different segment is near-saturation.
+PARTIAL -- Primary segment has 10-30% share in a growing TAM with moat; OR a high-share primary segment sits in a still-expanding TAM while a secondary segment provides genuine runway (e.g. dominant search + emerging cloud).
+NO     -- All significant segments have >30% share in flat or shrinking TAMs, or no identifiable moat exists in any segment.
+
+If segment market share is unknown, infer from company revenue relative to stated or estimated segment TAM.
 
 Q2 MOAT: Does the company have a sustainable competitive advantage?
 Criteria: at least one of - switching costs, network effects, cost advantage, intangible assets, efficient scale.
