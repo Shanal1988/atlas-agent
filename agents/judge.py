@@ -192,6 +192,7 @@ def check_thesis_coherence(
     fisher_result,
     selection_result,
     risk_result: dict,
+    valuation_result: dict | None = None,
 ) -> JudgeResult:
     """
     Judge 3 -- rule-based checks first; Groq only when no rule fires.
@@ -239,6 +240,44 @@ def check_thesis_coherence(
         )
         if severity == "INFO":
             severity = "WARN"
+
+    # -- Valuation consistency rules --
+    if valuation_result and valuation_result.get("available"):
+        mkt   = valuation_result.get("mktcap_mn")
+        dh    = valuation_result.get("dhandho", {})
+        dc    = valuation_result.get("dcf", {})
+        er    = (valuation_result.get("exp_returns") or {})
+        dh_lo = ((dh.get("lower")  or {}).get("iv"))
+        dh_hi = ((dh.get("higher") or {}).get("iv"))
+        dc_iv = dc.get("iv") if dc else None
+        er_iv = er.get("iv")
+        valid = [v for v in [dh_lo, dh_hi, dc_iv, er_iv] if v and v > 0]
+        if valid and mkt and mkt > 0:
+            iv_mid   = (min(valid) + max(valid)) / 2
+            prem_pct = (mkt - iv_mid) / iv_mid * 100
+            if prem_pct > 100 and decision == "INVEST":
+                flags.append(
+                    f"INVEST at {prem_pct:.0f}% premium to midpoint IV "
+                    "-- all 4 models price significantly below market; "
+                    "growth assumptions must exceed base case to justify entry."
+                )
+                if severity == "INFO":
+                    severity = "WARN"
+            elif 50 < prem_pct <= 100 and conviction in ("LOW", "MEDIUM") and decision == "INVEST":
+                flags.append(
+                    f"{prem_pct:.0f}% IV premium with {conviction} conviction "
+                    "-- valuation is stretched; WATCHLIST until better entry or "
+                    "thesis confirms growth well above model assumptions."
+                )
+                if severity == "INFO":
+                    severity = "WARN"
+            elif prem_pct < -30 and decision == "PASS":
+                flags.append(
+                    f"PASS at {abs(prem_pct):.0f}% discount to midpoint IV "
+                    "-- significant margin of safety exists; consider WATCHLIST."
+                )
+                if severity == "INFO":
+                    severity = "WARN"
 
     if flags:
         return JudgeResult(judge="thesis_coherence", passed=False,

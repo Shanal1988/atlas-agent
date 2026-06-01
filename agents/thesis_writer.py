@@ -75,7 +75,13 @@ _THESIS_SYSTEM = (
     "WATCH_2: [specific measurable watch point]\n"
     "WATCH_3: [specific measurable watch point]\n"
     "DECISION: [INVEST or WATCHLIST or PASS]\n"
-    "DECISION_RATIONALE: [one sentence]"
+    "DECISION_RATIONALE: [one sentence]\n\n"
+    "Valuation guidance for DECISION: the context includes an Intrinsic Value range "
+    "from 4 models (Dhandho, Ben Graham, DCF, Expected Returns). "
+    "A stock trading at a significant premium to midpoint IV (>50%) warrants WATCHLIST "
+    "unless conviction is HIGH and growth clearly exceeds model assumptions — name why. "
+    "A stock at a discount to IV strengthens the case for INVEST. "
+    "Never choose INVEST without acknowledging whether the price is near, above, or below IV."
 )
 
 
@@ -624,6 +630,7 @@ def run(profile: dict, bmp_result: dict,
     coherence_r = check_thesis_coherence(
         company, sections["DECISION"],
         bmp_result, fisher_result, selection_result, risk_result,
+        valuation_result,
     )
     print_judge(coherence_r, company)
 
