@@ -85,7 +85,21 @@ def _fetch_extra(ticker: str) -> dict:
     return out
 
 
-# -- FCF projection -------------------------------------------------------------
+# -- Capex-heavy detection ------------------------------------------------------
+
+def _capex_heavy_mode(fcf_abs, ocf_abs) -> bool:
+    """
+    Return True when FCF is severely depressed by growth capex.
+    Threshold: FCF < 40% of OCF — company is in a heavy reinvestment cycle.
+    Using FCF as base would dramatically understate earnings power; OCF is
+    the better proxy for 'cash generated before growth reinvestment'.
+    """
+    if not fcf_abs or not ocf_abs or ocf_abs <= 0:
+        return False
+    return (fcf_abs / ocf_abs) < 0.40
+
+
+# -- Cash flow projection -------------------------------------------------------
 
 def _project_fcf(base_mn: float, phases: list) -> list[float]:
     """Return list of FCFs for years 1-10 applying 3-phase growth rates."""
@@ -228,27 +242,29 @@ def _phases_str(phases: list) -> str:
     return "  |  ".join(f"Yr {s}-{e}: {int(r*100)}%" for s, e, r in phases)
 
 
-def _print_dhandho_block(label: str, phases: list, res: dict, shares: float | None) -> None:
+def _print_dhandho_block(label: str, phases: list, res: dict, shares: float | None,
+                         cf_label: str = "FCF") -> None:
     print(f"\n  {label}  ({_phases_str(phases)})")
-    print(f"  {'Year':<8} {'FCF (Mn)':>12}  {'PV of FCF (Mn)':>15}")
+    print(f"  {'Year':<8} {cf_label+' (Mn)':>12}  {'PV of CF (Mn)':>15}")
     print(f"  {'0 Net Cash':<8} {'':>12}  {res['net_cash']:>15,.0f}")
     for row in res["rows"]:
         print(f"  {row['year']:<8} {row['fcf']:>12,.0f}  {row['pv']:>15,.0f}")
     print(f"  {'':-<38}")
-    print(f"  {'Sum PV FCFs':<24}  {res['pv_sum']:>15,.0f}")
+    print(f"  {'Sum PV CFs':<24}  {res['pv_sum']:>15,.0f}")
     print(f"  {'PV Terminal Value':<24}  {res['pv_tv']:>15,.0f}")
     print(f"  {'Net Cash':<24}  {res['net_cash']:>15,.0f}")
     print(f"  {'IV Total':<24}  {res['iv']:>15,.0f}")
     print(f"  -> IV: {_mn(res['iv'])}  |  Per Share: {_price(res['iv'], shares)}")
 
 
-def _print_dcf_block(res: dict, phases: list, shares: float | None) -> None:
+def _print_dcf_block(res: dict, phases: list, shares: float | None,
+                     cf_label: str = "FCF") -> None:
     print(f"  Growth: {_phases_str(phases)}  |  Terminal: {int(TERMINAL_GROWTH*100)}%")
-    print(f"  {'Year':<8} {'FCF (Mn)':>12}  {'PV of FCF (Mn)':>15}")
+    print(f"  {'Year':<8} {cf_label+' (Mn)':>12}  {'PV of CF (Mn)':>15}")
     for row in res["rows"]:
         print(f"  {row['year']:<8} {row['fcf']:>12,.0f}  {row['pv']:>15,.0f}")
     print(f"  {'':-<38}")
-    print(f"  {'Sum PV FCFs':<24}  {res['pv_sum']:>15,.0f}")
+    print(f"  {'Sum PV CFs':<24}  {res['pv_sum']:>15,.0f}")
     print(f"  {'PV Terminal Value':<24}  {res['pv_tv']:>15,.0f}")
     print(f"  {'Net Cash':<24}  {res['net_cash']:>15,.0f}")
     print(f"  {'IV Total':<24}  {res['iv']:>15,.0f}")
@@ -264,11 +280,20 @@ def _print_valuation(profile: dict, r: dict) -> None:
     dc     = r.get("dcf", {})
     er     = r.get("exp_returns")
 
+    cf_label   = r.get("base_label", "FCF")
+    base_mn    = r.get("base_mn")
+    fcf_mn_ref = r.get("fcf_mn")
+    is_ch      = r.get("is_capex_heavy", False)
+
     print(f"\n{'=' * W}")
     print("  ATLAS: INTRINSIC VALUE ANALYSIS")
     print(f"{'=' * W}")
     print(f"  Company:         {profile.get('name', 'N/A')}")
-    print(f"  Base FCF:        {_mn(r.get('fcf_mn'))}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
+    if is_ch:
+        print(f"  Base {cf_label}:        {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
+        print(f"  [Capex-heavy mode: FCF ({_mn(fcf_mn_ref)}) < 40% of OCF — using OCF as earnings-power base]")
+    else:
+        print(f"  Base {cf_label}:        {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
     print(f"  Discount Rate:   {int(DISCOUNT_RATE*100)}%  |  Terminal Growth (DCF): {int(TERMINAL_GROWTH*100)}%")
     print(f"  Current Mkt Cap: {_mn(mktcap)}  |  Share Price: {profile.get('current_price', 'N/A')}")
 
@@ -277,8 +302,8 @@ def _print_valuation(profile: dict, r: dict) -> None:
     print("  METHOD 1: DHANDHO")
     print(f"  {'-' * (W-2)}")
     if dh:
-        _print_dhandho_block("Lower Range",  PHASES_LOWER,  dh["lower"],  shares)
-        _print_dhandho_block("Higher Range", PHASES_HIGHER, dh["higher"], shares)
+        _print_dhandho_block("Lower Range",  PHASES_LOWER,  dh["lower"],  shares, cf_label)
+        _print_dhandho_block("Higher Range", PHASES_HIGHER, dh["higher"], shares, cf_label)
 
     # -- Ben Graham --
     print(f"\n  {'-' * (W-2)}")
@@ -298,7 +323,7 @@ def _print_valuation(profile: dict, r: dict) -> None:
     print("  METHOD 3: DISCOUNTED CASH FLOW")
     print(f"  {'-' * (W-2)}")
     if dc:
-        _print_dcf_block(dc, PHASES_LOWER, shares)
+        _print_dcf_block(dc, PHASES_LOWER, shares, cf_label)
 
     # -- Expected Returns --
     print(f"\n  {'-' * (W-2)}")
@@ -365,18 +390,39 @@ def run(profile: dict) -> dict:
     ticker   = profile.get("ticker", "")
     company  = profile.get("name") or ticker
     fcf_abs  = profile.get("free_cash_flow")
+    ocf_abs  = profile.get("operating_cash_flow")
     mktcap   = profile.get("market_cap")
     pe       = profile.get("pe_ratio")
     rev_cagr = profile.get("revenue_cagr")
 
-    if not fcf_abs or fcf_abs <= 0:
-        print(f"\n  [Valuation] FCF not available for {company} -- skipping.")
+    # Detect capex-heavy reinvestment cycle — switch base to OCF
+    is_capex_heavy = _capex_heavy_mode(fcf_abs, ocf_abs)
+
+    if is_capex_heavy:
+        base_abs   = ocf_abs
+        base_label = "OCF"
+    elif fcf_abs and fcf_abs > 0:
+        base_abs   = fcf_abs
+        base_label = "FCF"
+    elif ocf_abs and ocf_abs > 0:
+        # FCF zero/negative but OCF available — use OCF as fallback
+        base_abs   = ocf_abs
+        base_label = "OCF"
+        is_capex_heavy = True
+    else:
+        print(f"\n  [Valuation] FCF/OCF not available for {company} -- skipping.")
         return {"available": False}
+
+    if is_capex_heavy:
+        print(f"\n  [Valuation] Capex-heavy mode: FCF ({fcf_abs/1e9:.1f}B) < 40% of OCF "
+              f"({ocf_abs/1e9:.1f}B) — using OCF as earnings-power base.")
 
     print(f"\n  [Valuation] Fetching supplementary data for {company}...")
     extra = _fetch_extra(ticker)
 
-    fcf_mn      = fcf_abs / 1e6
+    base_mn     = base_abs / 1e6
+    fcf_mn      = fcf_abs / 1e6 if fcf_abs else None
+    ocf_mn      = ocf_abs / 1e6 if ocf_abs else None
     mktcap_mn   = mktcap / 1e6 if mktcap else None
     net_cash_mn = extra.get("net_cash_mn") or 0.0
     shares      = extra.get("shares_outstanding")
@@ -386,34 +432,38 @@ def run(profile: dict) -> dict:
 
     print("  [Valuation] Computing Dhandho / Ben Graham / DCF / Expected Returns...")
 
-    dh_lower  = _dhandho(fcf_mn, net_cash_mn, PHASES_LOWER)
-    dh_higher = _dhandho(fcf_mn, net_cash_mn, PHASES_HIGHER)
+    dh_lower  = _dhandho(base_mn, net_cash_mn, PHASES_LOWER)
+    dh_higher = _dhandho(base_mn, net_cash_mn, PHASES_HIGHER)
 
     lo_g, hi_g    = _graham_growth_rates(rev_cagr, ni_cagr)
     graham_lower  = _ben_graham(avg_ni_mn, lo_g)  if avg_ni_mn else None
     graham_higher = _ben_graham(avg_ni_mn, hi_g)  if avg_ni_mn else None
 
-    dcf_result  = _dcf(fcf_mn, net_cash_mn, PHASES_LOWER)
+    dcf_result  = _dcf(base_mn, net_cash_mn, PHASES_LOWER)
     exp_returns = _expected_returns(ni_mn, ni_cagr, pe)
 
     result = {
-        "available":    True,
-        "fcf_mn":       fcf_mn,
-        "net_cash_mn":  net_cash_mn,
-        "shares":       shares,
-        "mktcap_mn":    mktcap_mn,
-        "dhandho":      {"lower": dh_lower, "higher": dh_higher},
-        "graham":       {
+        "available":       True,
+        "base_mn":         base_mn,
+        "base_label":      base_label,
+        "is_capex_heavy":  is_capex_heavy,
+        "fcf_mn":          fcf_mn,
+        "ocf_mn":          ocf_mn,
+        "net_cash_mn":     net_cash_mn,
+        "shares":          shares,
+        "mktcap_mn":       mktcap_mn,
+        "dhandho":         {"lower": dh_lower, "higher": dh_higher},
+        "graham":          {
             "lower":         graham_lower,
             "higher":        graham_higher,
             "lo_rate":       lo_g,
             "hi_rate":       hi_g,
             "avg_5yr_ni_mn": avg_ni_mn,
         },
-        "dcf":          dcf_result,
-        "exp_returns":  exp_returns,
-        "phases_lower":  PHASES_LOWER,
-        "phases_higher": PHASES_HIGHER,
+        "dcf":             dcf_result,
+        "exp_returns":     exp_returns,
+        "phases_lower":    PHASES_LOWER,
+        "phases_higher":   PHASES_HIGHER,
     }
 
     _print_valuation(profile, result)
