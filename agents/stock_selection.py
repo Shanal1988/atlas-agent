@@ -53,10 +53,10 @@ _SELECTION_SYSTEM = (
 _CHECKLIST_QUESTIONS = """
 Q1 SIMPLICITY:           Can you explain the business model in 2 sentences to a 10-year-old? Score YES if the business is clear and simple with no excessive complexity.
 Q2 EARNINGS CONSISTENCY: Has the company grown earnings consistently? Look for EPS/Net Income growth trend, no more than 1-2 loss-making years in available history.
-Q3 TEN YEAR DURABILITY:  Will this business still be relevant and growing in 10 years? Look for structural tailwinds, defensible market position, no obvious disruption threat.
+Q3 TEN YEAR DURABILITY:  What is this company's 10-year destination? Apply Nomad's destination analysis: the primary long-term risk is misanalysing where the business is heading, not short-term volatility. Will it be materially larger, stronger-moated, and more valuable? Look for a clear destination (e.g. dominant logistics platform, global software standard), structural tailwinds that compound, and no obvious disruption that diverts the journey.
 Q4 BUFFETT DOLLAR TEST:  For every $1 retained, has the company created more than $1 of market value? Use the Buffett Ratio provided. Ratio > 1.0 = YES, 0.5-1.0 = PARTIAL, < 0.5 or negative = NO.
 Q5 MOAT DURABILITY:      Does the competitive advantage look durable for the next decade? Look for structural moat - switching costs or network effects that compound over time.
-Q6 MANAGEMENT QUALITY:   Do managers think and act like owners with a long-term mindset? Look for insider ownership, buybacks vs dilution, sensible capital allocation.
+Q6 MANAGEMENT QUALITY:   Do managers think and act like long-term owners — building the moat rather than harvesting it? Look for insider ownership (>15% ideal), buybacks vs dilution, reinvestment into customer value and competitive position over short-term margin extraction, and a demonstrated willingness to sacrifice near-term profits to widen the moat.
 Q7 CAPEX INTENSITY:      Is the business asset-light? Use Capex % of Revenue provided. < 5% = YES, 5-15% = PARTIAL, > 15% = NO.
 Q8 FREE CASH FLOW:       Does the company generate strong and consistent free cash flow? Look for FCF margin > 15%, FCF growth trend, FCF/Net Income conversion > 0.8.
 """

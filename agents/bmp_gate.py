@@ -51,9 +51,10 @@ If segment market share is unknown, infer from company revenue relative to state
 
 Q2 MOAT: Does the company have a sustainable competitive advantage?
 Criteria: at least one of - switching costs, network effects, cost advantage, intangible assets, efficient scale.
+The strongest moat signal is Scale Economics Shared: the company reinvests scale savings back into lower prices or better service for customers, creating a self-reinforcing cycle where growth deepens the moat (e.g. Costco passes buying-club savings to members; Amazon reinvests fulfilment scale into faster/cheaper delivery; AirAsia's scale yields the lowest fares). Score YES if this pattern is clearly present. Score PARTIAL for a conventional cost/network moat without the customer-sharing flywheel.
 
 Q3 MANAGEMENT: Do managers think and act like owners?
-Criteria: insider ownership > 5%, low dilution history, sensible capital allocation.
+Criteria: insider ownership (YES > 15%, PARTIAL 5-15%, NO < 5%); low dilution history; sensible capital allocation; evidence of reinvesting into the moat rather than extracting short-term profit.
 
 Q4 GROWTH: Has the company grown sales and earnings consistently?
 Criteria: revenue CAGR > 10% over 3 years, positive operating cash flow (OCF).

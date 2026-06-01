@@ -71,6 +71,7 @@ _THESIS_SYSTEM = (
     "BEAR_2: [company-specific risk with a number or named event]\n"
     "BEAR_3: [company-specific risk with a number or named event — do NOT use 'could', 'may', or 'might' without a cited data point]\n"
     "THESIS_STATEMENT: [4-6 sentence first-person conviction paragraph]\n"
+    "DESTINATION: [1-2 sentences — where will this company be in 10 years? Name the specific market position, scale, or capability that makes this a materially larger and stronger business at its destination. The primary risk is misanalysing this destination.]\n"
     "WATCH_1: [specific measurable watch point with a threshold where possible]\n"
     "WATCH_2: [specific measurable watch point]\n"
     "WATCH_3: [specific measurable watch point]\n"
@@ -273,7 +274,7 @@ def _write_thesis_sections(context: str) -> str:
 
 _SECTION_LABELS = [
     "EXECUTIVE_SUMMARY", "BULL_1", "BULL_2", "BULL_3",
-    "BEAR_1", "BEAR_2", "BEAR_3", "THESIS_STATEMENT",
+    "BEAR_1", "BEAR_2", "BEAR_3", "THESIS_STATEMENT", "DESTINATION",
     "WATCH_1", "WATCH_2", "WATCH_3", "DECISION", "DECISION_RATIONALE",
 ]
 
@@ -484,6 +485,9 @@ def _format_thesis(profile: dict, bmp_result: dict,
         "  --- THESIS STATEMENT ---",
         _wrap(sections["THESIS_STATEMENT"]),
         "",
+        "  --- 10-YEAR DESTINATION ---",
+        _wrap(sections["DESTINATION"]),
+        "",
         "  --- WATCH POINTS ---",
         f"  1. {sections['WATCH_1']}",
         f"  2. {sections['WATCH_2']}",
@@ -575,6 +579,7 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             "bull_case":           [sections["BULL_1"], sections["BULL_2"], sections["BULL_3"]],
             "bear_case":           [sections["BEAR_1"], sections["BEAR_2"], sections["BEAR_3"]],
             "thesis_statement":    sections["THESIS_STATEMENT"],
+            "destination":         sections["DESTINATION"],
             "watch_points":        [sections["WATCH_1"], sections["WATCH_2"], sections["WATCH_3"]],
             "decision":            sections["DECISION"],
             "decision_rationale":  sections["DECISION_RATIONALE"],
