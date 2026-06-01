@@ -83,21 +83,48 @@ def _fetch_extra(ticker: str) -> dict:
             if len(ni_hist) >= 5 and ni_hist[-1] and ni_hist[-1] > 0:
                 out["ni_cagr_5yr"] = round((ni_hist[0] / ni_hist[-1]) ** (1 / 4) - 1, 4)
 
-        # Depreciation & Amortisation — proxy for maintenance capex.
-        # yfinance uses inconsistent labels; try in priority order.
-        # We prefer the total D&A charge added back in the operating section.
+        # D&A breakdown for maintenance capex estimation.
+        # Preferred: fetch physical depreciation and intangible amortisation separately.
+        # Physical depreciation is a genuine cash maintenance cost (servers age, trucks wear
+        # out, warehouses need upkeep).  Acquired intangible amortisation is mostly non-
+        # economic: the underlying assets (customer relationships, brands, technology) are
+        # maintained via P&L operating expenses (sales, R&D, marketing), not capex.
+        # Fallback: total D&A with a sector-blended adjustment factor (see valuation module).
         if cf is not None and not cf.empty:
+            # Try physical depreciation first (separate from intangible amort)
+            for k in ("Depreciation", "Depreciation Of PPE",
+                      "Depreciation Tangible Assets"):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None and val > 0:
+                        out["depreciation_mn"] = val / 1e6
+                        break
+
+            # Try intangible amortisation separately
+            for k in ("Amortization Of Intangibles",
+                      "Amortization Of Acquired Intangibles",
+                      "Amortization"):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None and val > 0:
+                        out["amort_intangibles_mn"] = val / 1e6
+                        break
+
+            # Total D&A — used when separate lines are unavailable
             for k in (
                 "Depreciation Amortization Depletion",
                 "Depreciation And Amortization",
                 "Reconciled Depreciation",
-                "Depreciation",
             ):
                 if k in cf.index:
                     val = _safe_float(cf.loc[k].iloc[0])
                     if val is not None and val > 0:
                         out["da_mn"] = val / 1e6
                         break
+
+            # If we got separate components but not the total, derive it
+            if out["da_mn"] is None and (out.get("depreciation_mn") or out.get("amort_intangibles_mn")):
+                out["da_mn"] = (out.get("depreciation_mn") or 0.0) + (out.get("amort_intangibles_mn") or 0.0)
 
             # Total capex (yfinance reports as negative; take absolute value)
             for k in ("Capital Expenditure", "Capital Expenditures",
@@ -129,71 +156,165 @@ def _capex_heavy_mode(fcf_abs, ocf_abs) -> bool:
 
 # -- Owner Earnings derivation --------------------------------------------------
 #
-# Warren Buffett (1986 Berkshire letter):
-#   Owner Earnings = Net Income + D&A − Maintenance Capex
+# Framework: Buffett (1986 BRK letter), Mauboussin/Peddireddy (Columbia 2020),
+#            Mark Leonard (CSU annual letters), Aswath Damodaran (NYU).
 #
-# We approach it from the cash-flow side:
-#   Owner Earnings = OCF − Maintenance Capex
-# where  OCF = Net Income + D&A + working-capital movements,
-# so     Owner Earnings ≈ Net Income + WC movements  (a reasonable approximation).
+# Owner Earnings = OCF - Maintenance Capex
 #
-# Maintenance Capex proxy: Depreciation & Amortisation from the cash flow statement.
-# D&A measures the accounting consumption of the existing asset base — i.e. how much
-# capital is needed just to stand still.  This is conservative for physical-asset
-# businesses (warehouses, servers, delivery trucks) because D&A is often lower than
-# true replacement cost in an inflationary environment, but it is the most objective
-# and directly observable figure.
+# D&A has two economically distinct components:
 #
-# Growth capex = Total Capex − Maintenance Capex.  It is deliberately NOT deducted
-# because it will generate incremental future cash flows — already captured by the
-# positive growth rates assumed in the 3-phase DCF projections.
+#  1. Physical PP&E depreciation  ->  100% real maintenance cash cost.
+#     Servers age, warehouses need upkeep, delivery trucks wear out.
+#     Mauboussin (2020): actual replacement cost ~100-125% of book depreciation
+#     in inflationary periods; we use 100% as a conservative base.
 #
-# Mark Leonard (CSU) principle applied: only charge the investor for capex that is
-# needed to maintain the existing competitive position.  Capex that expands the moat
-# is a form of reinvestment, not a cost.
+#  2. Amortisation of acquired intangibles  ->  MOSTLY non-economic.
+#     The underlying assets are maintained via P&L operating expenses, not capex:
+#       - Customer relationships: maintained via sales & marketing opex
+#       - Technology / IP: maintained via R&D opex
+#       - Brand / trademarks: don't wear out (perpetual useful life economically)
+#       - Non-compete agreements: expire at zero renewal cost
+#     Mark Leonard (CSU letters): adds back virtually ALL acquired intangible
+#       amortisation -- VMS software customer lifetimes (~25 yrs) >> GAAP useful
+#       life (8-10 yrs); assets perpetually renewed via maintenance contracts.
+#     Buffett (1986): "add back most of the amortisation charges reported."
+#     S&P 500 (2023): intangible amort = single largest non-GAAP add-back category.
+#
+# Growth capex = Total Capex - Maintenance Capex.  Deliberately NOT deducted:
+# it creates incremental future cash flows, already captured by the positive
+# growth rates in the 3-phase DCF / Dhandho projections.
+#
+# Implementation priority:
+#   Level 1  separate physical depreciation + intangible amortisation available
+#            -> maint = depreciation + amort * _AMORT_CASH_FACTOR[sector]
+#   Level 2  only total D&A available
+#            -> maint = da * _DA_BLENDED_FACTOR[sector]
+#   Level 3  no D&A data at all  ->  fall back to raw OCF (flagged in output)
+
+# What % of acquired intangible amortisation represents a genuine recurring cash cost?
+# Low in all sectors because the underlying assets are maintained via OPEX, not capex.
+# Sources: CSU letters (~0%), Buffett ("add back most"), Damodaran (non-economic),
+#          Calcbench 2023: intangible amort is the largest single non-GAAP add-back.
+_AMORT_CASH_FACTOR: dict = {
+    "Technology":              0.08,  # SaaS/software acquirers: customer rel via sales opex
+    "Communication Services":  0.12,  # Mix of physical infra + media/content IP
+    "Consumer Cyclical":       0.15,  # Some franchise/brand value maintained via marketing
+    "Consumer Defensive":      0.15,  # Brand-heavy but renewal is via marketing, not capex
+    "Healthcare":              0.18,  # Pharma/device IP has partial R&D renewal cost
+    "Industrials":             0.15,  # Process patents maintained via R&D opex
+    "Financial Services":      0.08,  # Mostly customer-list/software amort
+    "Utilities":               0.20,  # Regulatory asset rights have some renewal cost
+    "Energy":                  0.15,  # Exploration licences have some renewal cost
+    "Real Estate":             0.12,  # Lease intangibles
+    "Basic Materials":         0.15,
+    "default":                 0.15,
+}
+
+# Blended factor applied to TOTAL D&A when physical/intangible can't be separated.
+# Derived from typical sector-average split between physical depreciation (100% real)
+# and intangible amortisation (see _AMORT_CASH_FACTOR above), weighted by composition.
+# Mauboussin (2020): software-heavy / M&A-intensive sectors have far lower real
+# maintenance % than capital-intensive physical businesses.
+_DA_BLENDED_FACTOR: dict = {
+    # ~50% physical, ~50% intangible amort: 50%*1.0 + 50%*0.08 = 54% -> 55%
+    "Technology":              0.55,
+    # ~65% physical, ~35% intangible: 65%*1.0 + 35%*0.12 = 69%
+    "Communication Services":  0.69,
+    # ~85% physical (warehouses/vehicles/servers), ~15% intangible: 87%
+    "Consumer Cyclical":       0.87,
+    # ~80% physical, ~20% intangible: 83%
+    "Consumer Defensive":      0.83,
+    # ~60% physical equipment/facilities, ~40% pharma/device IP: 67%
+    "Healthcare":              0.67,
+    # ~85% physical machinery, ~15% process IP: 87%
+    "Industrials":             0.87,
+    # ~40% physical systems, ~60% software/customer-list amort: 45%
+    "Financial Services":      0.45,
+    # ~90% physical infrastructure (wires, pipes, plant): 92%
+    "Utilities":               0.92,
+    # ~85% physical wells/pipelines/equipment: 87%
+    "Energy":                  0.87,
+    # ~90% physical buildings: 91%
+    "Real Estate":             0.91,
+    # ~88% physical plant and mining assets: 89%
+    "Basic Materials":         0.89,
+    # Conservative default
+    "default":                 0.70,
+}
+
 
 def _compute_owner_earnings(
     ocf_mn: float,
     da_mn: float | None,
     total_capex_mn: float | None,
     fcf_mn: float,
+    sector: str = "",
+    depreciation_mn: float | None = None,
+    amort_intangibles_mn: float | None = None,
 ) -> dict:
     """
-    Derive Owner Earnings from OCF and maintenance capex (≈ D&A).
+    Derive Owner Earnings = OCF - Maintenance Capex.
 
-    Returns a dict with:
-      owner_earnings_mn  – base to use in Dhandho / DCF
-      maint_capex_mn     – estimated maintenance capex
-      growth_capex_mn    – estimated growth capex (excluded from base)
-      method             – human-readable derivation label
+    Priority:
+      1. Separate depreciation + intangible amortisation available -> two-component method
+      2. Total D&A only                                            -> sector-blended factor
+      3. Neither available                                         -> raw OCF with warning
+
+    Returns dict: owner_earnings_mn, maint_capex_mn, growth_capex_mn, method.
     """
-    if da_mn and da_mn > 0:
-        # D&A available — use as maintenance capex.
-        # Safety cap: maintenance capex cannot exceed total capex
-        # (can't spend more on maintenance than you spend in total).
-        maint = da_mn
+    maint: float | None = None
+    method: str = ""
+
+    if depreciation_mn and amort_intangibles_mn:
+        # Level 1: most accurate -- both physical depreciation and intangible amort known
+        amort_factor = _AMORT_CASH_FACTOR.get(sector, _AMORT_CASH_FACTOR["default"])
+        maint  = depreciation_mn + amort_intangibles_mn * amort_factor
+        method = (
+            f"Depr {_mn(depreciation_mn)} + "
+            f"Intangible Amort {_mn(amort_intangibles_mn)} x {amort_factor:.0%} "
+            f"[{sector or 'default'} sector]"
+        )
+
+    elif depreciation_mn and depreciation_mn > 0:
+        # Level 1.5: only physical depreciation known; use it directly.
+        # D&A = depreciation means yfinance found the separate "Depreciation" row,
+        # implying intangible amortisation is negligible or already included.
+        maint  = depreciation_mn
+        method = f"Physical depreciation {_mn(depreciation_mn)} (100% real maintenance cost)"
+
+    elif da_mn and da_mn > 0:
+        # Level 2: sector-blended factor on total D&A
+        factor = _DA_BLENDED_FACTOR.get(sector, _DA_BLENDED_FACTOR["default"])
+        amort_real_pct = int(_AMORT_CASH_FACTOR.get(sector, 0.15) * 100)
+        method = (
+            f"D&A {_mn(da_mn)} x {factor:.0%} "
+            f"[{sector or 'default'}: physical depr 100% real, "
+            f"intangible amort ~{amort_real_pct}% real]"
+        )
+        maint = da_mn * factor
+
+    if maint is not None:
+        # Cap: maintenance cannot exceed total capex actually spent
         if total_capex_mn and total_capex_mn > 0:
             maint = min(maint, total_capex_mn)
-        oe = ocf_mn - maint
+        oe     = ocf_mn - maint
         growth = (total_capex_mn - maint) if total_capex_mn else None
-        # Floor: never let owner earnings fall below reported FCF
-        # (if D&A > total capex the company is over-earning; FCF is the truer floor)
+        # Floor: owner earnings >= reported FCF (most conservative real bound)
         oe = max(oe, fcf_mn)
         return {
             "owner_earnings_mn": oe,
             "maint_capex_mn":    maint,
             "growth_capex_mn":   growth,
-            "method":            "OCF - D&A (Buffett Owner Earnings)",
-        }
-    else:
-        # D&A not available — fall back to raw OCF with a note
-        return {
-            "owner_earnings_mn": ocf_mn,
-            "maint_capex_mn":    None,
-            "growth_capex_mn":   None,
-            "method":            "OCF (D&A unavailable - maintenance capex not deducted)",
+            "method":            method,
         }
 
+    # Level 3: no D&A data
+    return {
+        "owner_earnings_mn": ocf_mn,
+        "maint_capex_mn":    None,
+        "growth_capex_mn":   None,
+        "method":            "OCF (D&A unavailable - maintenance capex not deducted)",
+    }
 
 # -- Cash flow projection -------------------------------------------------------
 
@@ -391,12 +512,14 @@ def _print_valuation(profile: dict, r: dict) -> None:
         growth_mn    = r.get("growth_capex_mn")
         ocf_mn_ref   = r.get("ocf_mn")
         print(f"  Base {cf_label}:  {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
-        print(f"  Derivation:      OCF {_mn(ocf_mn_ref)}"
-              f"  −  Maint. Capex {_mn(maint_mn)} (≈ D&A)"
-              f"  =  Owner Earnings {_mn(base_mn)}")
+        print(f"  Derivation:      OCF {_mn(ocf_mn_ref)} - Maint. Capex {_mn(maint_mn)}"
+              f" = Owner Earnings {_mn(base_mn)}")
+        maint_method = r.get("oe_method", "")
+        if maint_method:
+            print(f"  Maint. method:   {maint_method}")
         if growth_mn is not None:
-            print(f"  Growth Capex:    {_mn(growth_mn)} excluded — creates future cash flows "
-                  f"(captured in growth assumptions)")
+            print(f"  Growth Capex:    {_mn(growth_mn)} excluded"
+                  f" (creates future cash flows, captured in growth rates)")
         if not maint_mn:
             print(f"  [D&A unavailable — using raw OCF; maintenance capex not deducted]")
         print(f"  [FCF {_mn(fcf_mn_ref)} suppressed by growth capex reinvestment cycle]")
@@ -530,14 +653,17 @@ def run(profile: dict) -> dict:
             da_mn=extra.get("da_mn"),
             total_capex_mn=extra.get("total_capex_mn"),
             fcf_mn=fcf_mn or 0.0,
+            sector=profile.get("sector", ""),
+            depreciation_mn=extra.get("depreciation_mn"),
+            amort_intangibles_mn=extra.get("amort_intangibles_mn"),
         )
         base_mn    = oe_info["owner_earnings_mn"]
         base_label = "Owner Earnings"
         print(f"\n  [Valuation] Capex-heavy mode detected "
               f"(FCF {_mn(fcf_mn)} = {fcf_abs/ocf_abs*100:.0f}% of OCF {_mn(ocf_mn)}).")
-        print(f"  [Valuation] {oe_info['method']}: "
-              f"OCF {_mn(ocf_mn)} − D&A {_mn(oe_info.get('maint_capex_mn'))} "
-              f"= Owner Earnings {_mn(base_mn)}")
+        print(f"  [Valuation] Maint. capex: {oe_info['method']}")
+        print(f"  [Valuation] OCF {_mn(ocf_mn)} - Maint. Capex {_mn(oe_info.get('maint_capex_mn'))}"
+              f" = Owner Earnings {_mn(base_mn)}")
     elif fcf_abs and fcf_abs > 0:
         base_mn    = fcf_mn
         base_label = "FCF"
