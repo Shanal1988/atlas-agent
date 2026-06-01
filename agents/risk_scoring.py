@@ -445,15 +445,6 @@ def run(profile: dict, bmp_result: dict,
     category, alloc_label, lo_pct, hi_pct = _get_category(adjusted_nos)
     position_pct = _position_size(category, lo_pct, hi_pct, conviction)
 
-    # Option #4 -- Gold cap when Fisher and Selection were both skipped
-    if fisher_result is None and selection_result is None and category == "Diamond":
-        category, alloc_label, lo_pct, hi_pct = "Gold", "4-6%", 4.0, 6.0
-        position_pct = _position_size(category, lo_pct, hi_pct, conviction)
-        print(
-            f"\n  [GUARDRAIL] Category capped: Diamond -> Gold\n"
-            f"  Fisher and Selection not run -- Diamond requires evidence from all 3 stages."
-        )
-
     risk_lines = [
         f"{f['label']}: [{f['penalty']}] {f['reasoning']}" for f in factors
     ]

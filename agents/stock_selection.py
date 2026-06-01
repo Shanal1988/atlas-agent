@@ -434,8 +434,7 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     Returns result dict or None if skipped.
     """
     if bmp_verdict.upper().startswith("REJECT"):
-        print("\nBMP Gate verdict: REJECT. Stock selection checklist not warranted.")
-        return None
+        print(f"\n  [Selection] BMP verdict is REJECT — running full checklist to capture complete business picture.")
 
     ticker  = profile.get("ticker", "")
     company = profile.get("name") or ticker

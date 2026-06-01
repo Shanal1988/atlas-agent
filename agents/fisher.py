@@ -298,11 +298,9 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     Returns dict with points, total, rating — or None if skipped.
     """
     verdict_upper = bmp_verdict.upper()
-    if verdict_upper.startswith("REJECT"):
-        print("\nBMP Gate verdict: REJECT. Fisher analysis not warranted.")
-        return None
-
     company = profile.get("name") or profile.get("ticker", "Unknown")
+    if verdict_upper.startswith("REJECT"):
+        print(f"\n  [Fisher] BMP verdict is REJECT — running full analysis to capture complete business picture.")
     print(f"\n  [Fisher] Gathering evidence for {company}...")
 
     profile_ctx = _profile_context(profile)

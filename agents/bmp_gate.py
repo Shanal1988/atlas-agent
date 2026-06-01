@@ -38,23 +38,31 @@ _BMP_SYSTEM = (
 )
 
 _BMP_QUESTIONS = """
-Q1 BUSINESS: Does the company have at least one significant business segment with meaningful runway in a large, growing market and an identifiable competitive advantage?
+Q1 BUSINESS: Does the company have at least one material business segment — or a credible strategic bet — with meaningful runway in a large, growing market?
 
-Evaluate each significant segment separately. A segment is significant if it represents >15% of revenue, is growing >20% annually, or is an explicitly stated strategic priority (e.g. a new platform bet).
-For each significant segment estimate: market share, TAM size and growth direction, and competitive moat.
+STEP 1 — List every material segment. A segment is material if it: (a) represents >10% of revenue, (b) is growing >20% yoy, (c) is an explicitly stated strategic priority, or (d) is a funded optionality bet (moonshot / pre-revenue platform).
+For each segment state: estimated market share, TAM size ($B) and direction, moat, and trajectory (accelerating / stable / declining).
 
-YES    -- At least one significant segment has <10% share of a growing TAM (>$20B) with a clear moat. Do not disqualify the company because a different segment is near-saturation.
-PARTIAL -- Primary segment has 10-30% share in a growing TAM with moat; OR a high-share primary segment sits in a still-expanding TAM while a secondary segment provides genuine runway (e.g. dominant search + emerging cloud).
-NO     -- All significant segments have >30% share in flat or shrinking TAMs, or no identifiable moat exists in any segment.
+STEP 2 — Include optionality / moonshot bets even if pre-revenue. These represent real options on future value. Assess their plausibility (is the company actually spending on them? Is there technical progress?) and flag the TAM if the bet succeeds.
 
-If segment market share is unknown, infer from company revenue relative to stated or estimated segment TAM.
+STEP 3 — Assess whether the company is diversifying its revenue mix. A company actively growing new segments (e.g. shifting from ads to cloud + subscriptions) should be rewarded for that trajectory, not penalised for having a mature primary segment.
+
+YES    -- At least one material segment has genuine runway (<15% share in a growing TAM >$20B with a clear moat), OR the company has a credible optionality portfolio that creates a real call option on a large future TAM. Judge the portfolio of businesses, not just the largest segment.
+PARTIAL -- The primary segment is mature or highly penetrated, but secondary segments or strategic bets are growing rapidly and de-risking the revenue mix; OR a dominant primary segment has a still-expanding TAM with multi-year runway.
+NO     -- All material segments are near-saturation or declining AND no credible optionality exists in the portfolio.
+
+Do NOT score NO simply because the primary segment is large or dominant — dominance in a growing category is a strength, not a weakness.
 
 Q2 MOAT: Does the company have a sustainable competitive advantage?
 Criteria: at least one of - switching costs, network effects, cost advantage, intangible assets, efficient scale.
 The strongest moat signal is Scale Economics Shared: the company reinvests scale savings back into lower prices or better service for customers, creating a self-reinforcing cycle where growth deepens the moat (e.g. Costco passes buying-club savings to members; Amazon reinvests fulfilment scale into faster/cheaper delivery; AirAsia's scale yields the lowest fares). Score YES if this pattern is clearly present. Score PARTIAL for a conventional cost/network moat without the customer-sharing flywheel.
 
 Q3 MANAGEMENT: Do managers think and act like owners?
-Criteria: insider ownership (YES > 15%, PARTIAL 5-15%, NO < 5%); low dilution history; sensible capital allocation; evidence of reinvesting into the moat rather than extracting short-term profit.
+Criteria — assess in order:
+1. VOTING CONTROL: For companies with dual/multi-class share structures (Class A/B/C or equivalent), founders or insiders with majority voting control ARE owner-aligned even if their economic ownership appears low. A founder holding <5% economic stake but >50% voting power via super-voting shares = PARTIAL minimum.
+2. ECONOMIC OWNERSHIP: YES > 15%, PARTIAL 5-15%, NO < 5% — but only use this as the primary criterion if no super-voting structure exists.
+3. CAPITAL ALLOCATION: low dilution history, sensible reinvestment, long-term mindset over short-term margin extraction.
+Score YES if voting control is strong (founders effectively control the company) AND capital allocation is disciplined. Score PARTIAL if either voting control or ownership is meaningful but not both. Score NO only if economic ownership is negligible AND no voting control AND poor capital allocation track record.
 
 Q4 GROWTH: Has the company grown sales and earnings consistently?
 Criteria: revenue CAGR > 10% over 3 years, positive operating cash flow (OCF).
