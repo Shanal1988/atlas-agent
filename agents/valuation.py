@@ -32,19 +32,22 @@ def _safe_float(val):
 
 
 def _fetch_extra(ticker: str) -> dict:
-    """Fetch shares outstanding, net cash, and net income history from yfinance."""
+    """Fetch shares, net cash, net income history, D&A and total capex from yfinance."""
     out = {
         "shares_outstanding": None,
         "net_cash_mn":        None,
         "ni_latest_mn":       None,
         "avg_5yr_ni_mn":      None,
         "ni_cagr_5yr":        None,
+        "da_mn":              None,   # Depreciation & Amortisation (cash flow stmt)
+        "total_capex_mn":     None,   # Total capital expenditure (absolute value)
     }
     try:
         t    = yf.Ticker(ticker)
         info = t.info
         fin  = t.financials    # rows = metrics, cols = dates newest-first
         bs   = t.balance_sheet
+        cf   = t.cashflow
 
         out["shares_outstanding"] = info.get("sharesOutstanding")
 
@@ -80,6 +83,31 @@ def _fetch_extra(ticker: str) -> dict:
             if len(ni_hist) >= 5 and ni_hist[-1] and ni_hist[-1] > 0:
                 out["ni_cagr_5yr"] = round((ni_hist[0] / ni_hist[-1]) ** (1 / 4) - 1, 4)
 
+        # Depreciation & Amortisation — proxy for maintenance capex.
+        # yfinance uses inconsistent labels; try in priority order.
+        # We prefer the total D&A charge added back in the operating section.
+        if cf is not None and not cf.empty:
+            for k in (
+                "Depreciation Amortization Depletion",
+                "Depreciation And Amortization",
+                "Reconciled Depreciation",
+                "Depreciation",
+            ):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None and val > 0:
+                        out["da_mn"] = val / 1e6
+                        break
+
+            # Total capex (yfinance reports as negative; take absolute value)
+            for k in ("Capital Expenditure", "Capital Expenditures",
+                      "Purchase Of PPE", "Purchase Of Property Plant And Equipment"):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None:
+                        out["total_capex_mn"] = abs(val) / 1e6
+                        break
+
     except Exception:
         pass
     return out
@@ -97,6 +125,74 @@ def _capex_heavy_mode(fcf_abs, ocf_abs) -> bool:
     if not fcf_abs or not ocf_abs or ocf_abs <= 0:
         return False
     return (fcf_abs / ocf_abs) < 0.40
+
+
+# -- Owner Earnings derivation --------------------------------------------------
+#
+# Warren Buffett (1986 Berkshire letter):
+#   Owner Earnings = Net Income + D&A − Maintenance Capex
+#
+# We approach it from the cash-flow side:
+#   Owner Earnings = OCF − Maintenance Capex
+# where  OCF = Net Income + D&A + working-capital movements,
+# so     Owner Earnings ≈ Net Income + WC movements  (a reasonable approximation).
+#
+# Maintenance Capex proxy: Depreciation & Amortisation from the cash flow statement.
+# D&A measures the accounting consumption of the existing asset base — i.e. how much
+# capital is needed just to stand still.  This is conservative for physical-asset
+# businesses (warehouses, servers, delivery trucks) because D&A is often lower than
+# true replacement cost in an inflationary environment, but it is the most objective
+# and directly observable figure.
+#
+# Growth capex = Total Capex − Maintenance Capex.  It is deliberately NOT deducted
+# because it will generate incremental future cash flows — already captured by the
+# positive growth rates assumed in the 3-phase DCF projections.
+#
+# Mark Leonard (CSU) principle applied: only charge the investor for capex that is
+# needed to maintain the existing competitive position.  Capex that expands the moat
+# is a form of reinvestment, not a cost.
+
+def _compute_owner_earnings(
+    ocf_mn: float,
+    da_mn: float | None,
+    total_capex_mn: float | None,
+    fcf_mn: float,
+) -> dict:
+    """
+    Derive Owner Earnings from OCF and maintenance capex (≈ D&A).
+
+    Returns a dict with:
+      owner_earnings_mn  – base to use in Dhandho / DCF
+      maint_capex_mn     – estimated maintenance capex
+      growth_capex_mn    – estimated growth capex (excluded from base)
+      method             – human-readable derivation label
+    """
+    if da_mn and da_mn > 0:
+        # D&A available — use as maintenance capex.
+        # Safety cap: maintenance capex cannot exceed total capex
+        # (can't spend more on maintenance than you spend in total).
+        maint = da_mn
+        if total_capex_mn and total_capex_mn > 0:
+            maint = min(maint, total_capex_mn)
+        oe = ocf_mn - maint
+        growth = (total_capex_mn - maint) if total_capex_mn else None
+        # Floor: never let owner earnings fall below reported FCF
+        # (if D&A > total capex the company is over-earning; FCF is the truer floor)
+        oe = max(oe, fcf_mn)
+        return {
+            "owner_earnings_mn": oe,
+            "maint_capex_mn":    maint,
+            "growth_capex_mn":   growth,
+            "method":            "OCF - D&A (Buffett Owner Earnings)",
+        }
+    else:
+        # D&A not available — fall back to raw OCF with a note
+        return {
+            "owner_earnings_mn": ocf_mn,
+            "maint_capex_mn":    None,
+            "growth_capex_mn":   None,
+            "method":            "OCF (D&A unavailable - maintenance capex not deducted)",
+        }
 
 
 # -- Cash flow projection -------------------------------------------------------
@@ -290,8 +386,20 @@ def _print_valuation(profile: dict, r: dict) -> None:
     print(f"{'=' * W}")
     print(f"  Company:         {profile.get('name', 'N/A')}")
     if is_ch:
-        print(f"  Base {cf_label}:        {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
-        print(f"  [Capex-heavy mode: FCF ({_mn(fcf_mn_ref)}) < 40% of OCF — using OCF as earnings-power base]")
+        oe_method    = r.get("oe_method", "")
+        maint_mn     = r.get("maint_capex_mn")
+        growth_mn    = r.get("growth_capex_mn")
+        ocf_mn_ref   = r.get("ocf_mn")
+        print(f"  Base {cf_label}:  {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
+        print(f"  Derivation:      OCF {_mn(ocf_mn_ref)}"
+              f"  −  Maint. Capex {_mn(maint_mn)} (≈ D&A)"
+              f"  =  Owner Earnings {_mn(base_mn)}")
+        if growth_mn is not None:
+            print(f"  Growth Capex:    {_mn(growth_mn)} excluded — creates future cash flows "
+                  f"(captured in growth assumptions)")
+        if not maint_mn:
+            print(f"  [D&A unavailable — using raw OCF; maintenance capex not deducted]")
+        print(f"  [FCF {_mn(fcf_mn_ref)} suppressed by growth capex reinvestment cycle]")
     else:
         print(f"  Base {cf_label}:        {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
     print(f"  Discount Rate:   {int(DISCOUNT_RATE*100)}%  |  Terminal Growth (DCF): {int(TERMINAL_GROWTH*100)}%")
@@ -395,32 +503,16 @@ def run(profile: dict) -> dict:
     pe       = profile.get("pe_ratio")
     rev_cagr = profile.get("revenue_cagr")
 
-    # Detect capex-heavy reinvestment cycle — switch base to OCF
+    # Detect capex-heavy reinvestment cycle
     is_capex_heavy = _capex_heavy_mode(fcf_abs, ocf_abs)
 
-    if is_capex_heavy:
-        base_abs   = ocf_abs
-        base_label = "OCF"
-    elif fcf_abs and fcf_abs > 0:
-        base_abs   = fcf_abs
-        base_label = "FCF"
-    elif ocf_abs and ocf_abs > 0:
-        # FCF zero/negative but OCF available — use OCF as fallback
-        base_abs   = ocf_abs
-        base_label = "OCF"
-        is_capex_heavy = True
-    else:
+    if not (fcf_abs and fcf_abs > 0) and not (ocf_abs and ocf_abs > 0):
         print(f"\n  [Valuation] FCF/OCF not available for {company} -- skipping.")
         return {"available": False}
-
-    if is_capex_heavy:
-        print(f"\n  [Valuation] Capex-heavy mode: FCF ({fcf_abs/1e9:.1f}B) < 40% of OCF "
-              f"({ocf_abs/1e9:.1f}B) — using OCF as earnings-power base.")
 
     print(f"\n  [Valuation] Fetching supplementary data for {company}...")
     extra = _fetch_extra(ticker)
 
-    base_mn     = base_abs / 1e6
     fcf_mn      = fcf_abs / 1e6 if fcf_abs else None
     ocf_mn      = ocf_abs / 1e6 if ocf_abs else None
     mktcap_mn   = mktcap / 1e6 if mktcap else None
@@ -429,6 +521,30 @@ def run(profile: dict) -> dict:
     ni_mn       = extra.get("ni_latest_mn")
     avg_ni_mn   = extra.get("avg_5yr_ni_mn")
     ni_cagr     = extra.get("ni_cagr_5yr")
+
+    # Derive Owner Earnings for capex-heavy companies
+    oe_info: dict = {}
+    if is_capex_heavy and ocf_mn:
+        oe_info = _compute_owner_earnings(
+            ocf_mn=ocf_mn,
+            da_mn=extra.get("da_mn"),
+            total_capex_mn=extra.get("total_capex_mn"),
+            fcf_mn=fcf_mn or 0.0,
+        )
+        base_mn    = oe_info["owner_earnings_mn"]
+        base_label = "Owner Earnings"
+        print(f"\n  [Valuation] Capex-heavy mode detected "
+              f"(FCF {_mn(fcf_mn)} = {fcf_abs/ocf_abs*100:.0f}% of OCF {_mn(ocf_mn)}).")
+        print(f"  [Valuation] {oe_info['method']}: "
+              f"OCF {_mn(ocf_mn)} − D&A {_mn(oe_info.get('maint_capex_mn'))} "
+              f"= Owner Earnings {_mn(base_mn)}")
+    elif fcf_abs and fcf_abs > 0:
+        base_mn    = fcf_mn
+        base_label = "FCF"
+    else:
+        # FCF zero/negative, no capex-heavy signal — use OCF as last resort
+        base_mn    = ocf_mn
+        base_label = "OCF"
 
     print("  [Valuation] Computing Dhandho / Ben Graham / DCF / Expected Returns...")
 
@@ -443,27 +559,30 @@ def run(profile: dict) -> dict:
     exp_returns = _expected_returns(ni_mn, ni_cagr, pe)
 
     result = {
-        "available":       True,
-        "base_mn":         base_mn,
-        "base_label":      base_label,
-        "is_capex_heavy":  is_capex_heavy,
-        "fcf_mn":          fcf_mn,
-        "ocf_mn":          ocf_mn,
-        "net_cash_mn":     net_cash_mn,
-        "shares":          shares,
-        "mktcap_mn":       mktcap_mn,
-        "dhandho":         {"lower": dh_lower, "higher": dh_higher},
-        "graham":          {
+        "available":        True,
+        "base_mn":          base_mn,
+        "base_label":       base_label,
+        "is_capex_heavy":   is_capex_heavy,
+        "fcf_mn":           fcf_mn,
+        "ocf_mn":           ocf_mn,
+        "maint_capex_mn":   oe_info.get("maint_capex_mn"),
+        "growth_capex_mn":  oe_info.get("growth_capex_mn"),
+        "oe_method":        oe_info.get("method", ""),
+        "net_cash_mn":      net_cash_mn,
+        "shares":           shares,
+        "mktcap_mn":        mktcap_mn,
+        "dhandho":          {"lower": dh_lower, "higher": dh_higher},
+        "graham":           {
             "lower":         graham_lower,
             "higher":        graham_higher,
             "lo_rate":       lo_g,
             "hi_rate":       hi_g,
             "avg_5yr_ni_mn": avg_ni_mn,
         },
-        "dcf":             dcf_result,
-        "exp_returns":     exp_returns,
-        "phases_lower":    PHASES_LOWER,
-        "phases_higher":   PHASES_HIGHER,
+        "dcf":              dcf_result,
+        "exp_returns":      exp_returns,
+        "phases_lower":     PHASES_LOWER,
+        "phases_higher":    PHASES_HIGHER,
     }
 
     _print_valuation(profile, result)
