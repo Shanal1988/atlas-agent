@@ -23,11 +23,15 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
             return resp.choices[0].message.content
         except Exception as e:
             print(f"  [Warning] OpenAI Thesis model failed ({e}), falling back to Groq.")
-    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-        model=GROQ_MODEL, messages=messages,
-        max_tokens=max_tokens, temperature=temperature,
-    )
-    return resp.choices[0].message.content
+    try:
+        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+            model=GROQ_MODEL, messages=messages,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- thesis writing skipped.")
+        return ""
 
 _FINANCIAL_FINTECH_KEYWORDS = {
     "payment", "fintech", "financial technology", "banking",
@@ -63,9 +67,9 @@ _THESIS_SYSTEM = (
     "BULL_1: [specific bullet — strongest reason to own over 5-10 years]\n"
     "BULL_2: [specific bullet]\n"
     "BULL_3: [specific bullet]\n"
-    "BEAR_1: [specific bullet — most credible reason investment could fail]\n"
-    "BEAR_2: [specific bullet]\n"
-    "BEAR_3: [specific bullet]\n"
+    "BEAR_1: [company-specific risk with a number or named event — e.g. 'Regulatory fine risk: EU DSA could cap interchange fees, compressing Adyen's ~47% EBITDA margin']\n"
+    "BEAR_2: [company-specific risk with a number or named event]\n"
+    "BEAR_3: [company-specific risk with a number or named event — do NOT use 'could', 'may', or 'might' without a cited data point]\n"
     "THESIS_STATEMENT: [4-6 sentence first-person conviction paragraph]\n"
     "WATCH_1: [specific measurable watch point with a threshold where possible]\n"
     "WATCH_2: [specific measurable watch point]\n"
@@ -115,9 +119,37 @@ def _collect_strengths(fisher_result: dict | None,
     return items
 
 
+def _iv_summary_line(valuation_result: dict | None) -> str:
+    """One-line IV summary for inclusion in LLM context."""
+    if not valuation_result or not valuation_result.get("available"):
+        return "Intrinsic Value:   N/A (not computed)"
+    dh  = valuation_result.get("dhandho", {})
+    dc  = valuation_result.get("dcf", {})
+    er  = valuation_result.get("exp_returns") or {}
+    mkt = valuation_result.get("mktcap_mn")
+
+    dh_lo = (dh.get("lower")  or {}).get("iv")
+    dh_hi = (dh.get("higher") or {}).get("iv")
+    dc_iv = dc.get("iv") if dc else None
+    er_iv = er.get("iv")
+
+    from agents.valuation import _mn, _prem
+    valid = [v for v in [dh_lo, dh_hi, dc_iv, er_iv] if v and v > 0]
+    if not valid:
+        return "Intrinsic Value:   N/A"
+    iv_lo, iv_hi = min(valid), max(valid)
+    prem_str = _prem((iv_lo + iv_hi) / 2, mkt)
+    return (
+        f"Intrinsic Value:   Range {_mn(iv_lo)} - {_mn(iv_hi)}  "
+        f"[Dhandho: {_mn(dh_lo)}/{_mn(dh_hi)}, "
+        f"DCF: {_mn(dc_iv)}, ExpRet: {_mn(er_iv)}]  "
+        f"vs Mkt Cap: {prem_str}"
+    )
+
+
 def _build_context(profile: dict, bmp_result: dict,
                    fisher_result: dict | None, selection_result: dict | None,
-                   risk_result: dict) -> str:
+                   risk_result: dict, valuation_result: dict | None = None) -> str:
     roe     = profile.get("roe")
     insider = profile.get("insider_ownership_pct")
     cagr    = profile.get("revenue_cagr")
@@ -181,6 +213,7 @@ def _build_context(profile: dict, bmp_result: dict,
         f"({risk_result.get('alloc_label', 'N/A')})",
         f"Conviction:        {risk_result.get('conviction', 'N/A')}",
         f"Position Size:     {risk_result.get('position_pct', 0)}%",
+        _iv_summary_line(valuation_result),
         "",
         "=== STRENGTHS (evidence for bull case) ===",
     ]
@@ -201,6 +234,18 @@ def _build_context(profile: dict, bmp_result: dict,
         f"Total risk penalty: +{risk_result.get('total_penalty', 0)} NOs",
         f"Adjusted NO count:  {risk_result.get('adjusted_nos', 0)}",
     ]
+
+    # Fisher research evidence — gives the writer real sources to cite in bear case bullets
+    fisher_evidence = (fisher_result or {}).get("evidence", "")
+    if fisher_evidence:
+        excerpt = fisher_evidence[:2500]
+        if len(fisher_evidence) > 2500:
+            excerpt += "\n[... truncated ...]"
+        lines += [
+            "",
+            "=== RESEARCH EVIDENCE (cite specific facts, names, and figures in bear case) ===",
+            excerpt,
+        ]
 
     return "\n".join(lines)
 
@@ -302,9 +347,61 @@ def _fmt_mcap(val) -> str:
         return str(val)
 
 
+def _format_valuation_section(valuation_result: dict | None) -> list[str]:
+    """Render a compact IV summary block for inclusion in the printed thesis."""
+    if not valuation_result or not valuation_result.get("available"):
+        return []
+    from agents.valuation import _mn, _price
+    dh  = valuation_result.get("dhandho", {})
+    gm  = valuation_result.get("graham",  {})
+    dc  = valuation_result.get("dcf",     {})
+    er  = valuation_result.get("exp_returns") or {}
+    mkt = valuation_result.get("mktcap_mn")
+    shares = valuation_result.get("shares")
+
+    dh_lo = (dh.get("lower")  or {}).get("iv")
+    dh_hi = (dh.get("higher") or {}).get("iv")
+    dc_iv = dc.get("iv") if dc else None
+    er_iv = er.get("iv")
+    glo   = gm.get("lower")
+    ghi   = gm.get("higher")
+
+    valid = [v for v in [dh_lo, dh_hi, dc_iv, er_iv] if v and v > 0]
+    overall = ""
+    if valid and mkt:
+        iv_lo, iv_hi = min(valid), max(valid)
+        mid  = (iv_lo + iv_hi) / 2
+        prem = (mkt - mid) / mid * 100
+        verdict = "OVERVALUED" if prem > 20 else ("UNDERVALUED" if prem < -20 else "FAIRLY VALUED")
+        overall = (f"  IV Range (ex-Graham): {_mn(iv_lo)} - {_mn(iv_hi)}"
+                   f"  ->  {abs(prem):.0f}% {'premium' if prem > 0 else 'discount'} ({verdict})")
+
+    lines = [
+        "",
+        "  --- INTRINSIC VALUE SUMMARY ---",
+        f"  {'Method':<22}  {'IV Lower':>12}  {'IV Higher':>12}  {'Price Lo / Hi':>16}",
+        f"  {'-'*62}",
+    ]
+    def row(label, lo, hi):
+        lo_s  = _mn(lo) if lo is not None else "N/A"
+        hi_s  = _mn(hi) if hi is not None else "  -"
+        pr_lo = _price(lo, shares) if lo is not None else "N/A"
+        pr_hi = _price(hi, shares) if hi is not None else "  -"
+        lines.append(f"  {label:<22}  {lo_s:>12}  {hi_s:>12}  {pr_lo:>8} / {pr_hi:<8}")
+
+    row("Dhandho",          dh_lo, dh_hi)
+    row("Ben Graham",       glo,   ghi)
+    row("DCF",              dc_iv, None)
+    row("Expected Returns", er_iv, None)
+    if overall:
+        lines += [f"  {'-'*62}", overall]
+    return lines
+
+
 def _format_thesis(profile: dict, bmp_result: dict,
                    fisher_result: dict | None, selection_result: dict | None,
-                   risk_result: dict, sections: dict, today_str: str) -> str:
+                   risk_result: dict, sections: dict, today_str: str,
+                   valuation_result: dict | None = None) -> str:
     name    = profile.get("name", "N/A")
     ticker  = profile.get("ticker", "N/A")
     roe     = profile.get("roe")
@@ -354,6 +451,9 @@ def _format_thesis(profile: dict, bmp_result: dict,
             else "  Stock Selection: N/A - not run",
         f"  Risk Category:   {category} - Position Size: {pos_pct}%",
         f"  Conviction:      {conviction}",
+    ]
+    lines += _format_valuation_section(valuation_result)
+    lines += [
         "",
         "  --- THE BULL CASE ---",
         f"  * {sections['BULL_1']}",
@@ -397,7 +497,8 @@ def _format_thesis(profile: dict, bmp_result: dict,
 def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
           fisher_result: dict | None, selection_result: dict | None,
           risk_result: dict, sections: dict, formatted: str,
-          judge_flags: dict | None = None) -> tuple[str, str]:
+          judge_flags: dict | None = None,
+          valuation_result: dict | None = None) -> tuple[str, str]:
     Path("data/theses").mkdir(parents=True, exist_ok=True)
 
     safe_ticker = ticker.replace(".", "_")
@@ -422,6 +523,8 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             "revenue_cagr":         profile.get("revenue_cagr"),
             "revenues":             profile.get("revenues"),
             "free_cash_flow":       profile.get("free_cash_flow"),
+            "operating_cash_flow":  profile.get("operating_cash_flow"),
+            "operating_income":     profile.get("operating_income"),
             "roe":                  profile.get("roe"),
             "insider_ownership_pct": profile.get("insider_ownership_pct"),
             "description":          profile.get("description"),
@@ -460,6 +563,7 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             },
         },
         "judge_flags": judge_flags or {},
+        "valuation": valuation_result if valuation_result and valuation_result.get("available") else None,
         "thesis": {
             "executive_summary":   sections["EXECUTIVE_SUMMARY"],
             "bull_case":           [sections["BULL_1"], sections["BULL_2"], sections["BULL_3"]],
@@ -485,7 +589,7 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
 
 def run(profile: dict, bmp_result: dict,
         fisher_result: dict | None, selection_result: dict | None,
-        risk_result: dict) -> dict:
+        risk_result: dict, valuation_result: dict | None = None) -> dict:
     """
     Write and save the investment thesis.
     Always runs regardless of prior stage verdicts.
@@ -497,14 +601,15 @@ def run(profile: dict, bmp_result: dict,
     print(f"\n  [Thesis] Writing investment thesis for {company}...")
 
     context  = _build_context(
-        profile, bmp_result, fisher_result, selection_result, risk_result
+        profile, bmp_result, fisher_result, selection_result, risk_result,
+        valuation_result,
     )
     raw      = _write_thesis_sections(context)
     sections = _parse_sections(raw)
 
     formatted = _format_thesis(
         profile, bmp_result, fisher_result, selection_result,
-        risk_result, sections, today_str,
+        risk_result, sections, today_str, valuation_result,
     )
 
     print(formatted)
@@ -538,6 +643,7 @@ def run(profile: dict, bmp_result: dict,
     json_path, txt_path = _save(
         ticker, today_str, profile, bmp_result, fisher_result,
         selection_result, risk_result, sections, formatted, judge_flags,
+        valuation_result,
     )
 
     print(f"  [Thesis] Saved: {json_path}")

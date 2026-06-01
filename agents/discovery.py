@@ -94,14 +94,18 @@ def _resolve_ticker(company_name: str) -> str:
         f"Search results:\n{snippets}"
     )
 
-    response = _groq().chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=16,
-        temperature=0,
-    )
-    raw = response.choices[0].message.content.strip().upper()
-    ticker = raw.split()[0].strip(".,;:()'\"")
+    try:
+        response = _groq().chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=16,
+            temperature=0,
+        )
+        raw = response.choices[0].message.content.strip().upper()
+        ticker = raw.split()[0].strip(".,;:()'\"")
+    except Exception as e:
+        print(f"        -> Groq unavailable ({type(e).__name__}), using input as ticker")
+        ticker = company_name.upper().split()[0].strip(".,;:()'\"")
     print(f"        -> {ticker}")
     return ticker
 
@@ -135,10 +139,12 @@ def _fetch_fmp_data(ticker: str) -> dict | None:
         {"year": str(row.get("fiscalYear", "?")), "revenue": row.get("revenue")}
         for row in income
     ]
+    operating_income = income[0].get("operatingIncome") if income else None
 
     # Cash flow -- last year
     cf = _fmp("/cash-flow-statement", {"symbol": ticker, "limit": 1}) or []
-    free_cash_flow = cf[0].get("freeCashFlow") if cf else None
+    free_cash_flow       = cf[0].get("freeCashFlow")      if cf else None
+    operating_cash_flow  = cf[0].get("operatingCashFlow") if cf else None
 
     # Ratios -- last year
     ratios = _fmp("/ratios", {"symbol": ticker, "limit": 1}) or []
@@ -158,6 +164,8 @@ def _fetch_fmp_data(ticker: str) -> dict | None:
         "beta":                 p.get("beta"),
         "revenues":             revenues,
         "free_cash_flow":       free_cash_flow,
+        "operating_cash_flow":  operating_cash_flow,
+        "operating_income":     operating_income,
         "roe":                  roe,
         "insider_ownership_pct": p.get("insiderOwnership"),
         "data_source":          "FMP",
@@ -166,7 +174,7 @@ def _fetch_fmp_data(ticker: str) -> dict | None:
 
 # -- Step 2a-patch: fill FMP gaps from yfinance --------------------------------
 
-_PATCHABLE = ("revenues", "free_cash_flow", "roe", "insider_ownership_pct", "pe_ratio")
+_PATCHABLE = ("revenues", "free_cash_flow", "operating_cash_flow", "operating_income", "roe", "insider_ownership_pct", "pe_ratio")
 
 
 def _patch_fmp_gaps(data: dict, ticker: str) -> dict:
@@ -180,6 +188,8 @@ def _patch_fmp_gaps(data: dict, ticker: str) -> dict:
     needs_patch = (
         not data.get("revenues")
         or data.get("free_cash_flow") is None
+        or data.get("operating_cash_flow") is None
+        or data.get("operating_income") is None
         or data.get("roe") is None
         or data.get("insider_ownership_pct") is None
         or data.get("pe_ratio") is None
@@ -196,7 +206,7 @@ def _patch_fmp_gaps(data: dict, ticker: str) -> dict:
                 data["revenues"] = yf["revenues"]
                 sources["revenues"] = "yfinance"
 
-            for field in ("free_cash_flow", "roe", "insider_ownership_pct", "pe_ratio"):
+            for field in ("free_cash_flow", "operating_cash_flow", "operating_income", "roe", "insider_ownership_pct", "pe_ratio"):
                 if data.get(field) is None and yf.get(field) is not None:
                     data[field] = yf[field]
                     sources[field] = "yfinance"
@@ -236,20 +246,38 @@ def _fetch_yfinance_data(ticker: str) -> dict | None:
     except Exception:
         pass
 
-    # Free cash flow -- most recent annual
+    # Operating Cash Flow and Free Cash Flow -- most recent annual
+    operating_cash_flow = None
     free_cash_flow = None
     try:
         cf = t.cashflow
         if cf is not None and not cf.empty:
+            if "Operating Cash Flow" in cf.index:
+                vals = cf.loc["Operating Cash Flow"].dropna()
+                if len(vals):
+                    operating_cash_flow = _safe_int(vals.iloc[0])
             if "Free Cash Flow" in cf.index:
                 vals = cf.loc["Free Cash Flow"].dropna()
                 if len(vals):
                     free_cash_flow = _safe_int(vals.iloc[0])
-            if free_cash_flow is None:
-                op  = cf.loc["Operating Cash Flow"].iloc[0] if "Operating Cash Flow" in cf.index else None
-                cap = cf.loc["Capital Expenditure"].iloc[0]  if "Capital Expenditure"  in cf.index else None
-                if op is not None and cap is not None:
-                    free_cash_flow = _safe_int(op + cap)  # capex stored as negative
+            if free_cash_flow is None and operating_cash_flow is not None:
+                cap = cf.loc["Capital Expenditure"].iloc[0] if "Capital Expenditure" in cf.index else None
+                if cap is not None:
+                    free_cash_flow = _safe_int(operating_cash_flow + cap)  # capex stored as negative
+    except Exception:
+        pass
+
+    # Operating income -- most recent annual
+    operating_income = None
+    try:
+        fin = t.financials
+        if fin is not None and not fin.empty:
+            for row_name in ("Operating Income", "EBIT", "Total Operating Income As Reported"):
+                if row_name in fin.index:
+                    vals = fin.loc[row_name].dropna()
+                    if len(vals):
+                        operating_income = _safe_int(vals.iloc[0])
+                    break
     except Exception:
         pass
 
@@ -268,6 +296,8 @@ def _fetch_yfinance_data(ticker: str) -> dict | None:
         "beta":                 info.get("beta"),
         "revenues":             revenues,
         "free_cash_flow":       free_cash_flow,
+        "operating_cash_flow":  operating_cash_flow,
+        "operating_income":     operating_income,
         "roe":                  roe,
         "insider_ownership_pct": info.get("heldPercentInsiders"),
         "data_source":          "yfinance",
@@ -341,16 +371,26 @@ def _fetch_qualitative(company_name: str, ticker: str) -> dict:
         f"Search results:\n{combined}"
     )
 
-    response = _groq().chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": _ANALYST_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ],
-        max_tokens=1024,
-        temperature=0.2,
-    )
-    text = response.choices[0].message.content
+    try:
+        response = _groq().chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": _ANALYST_SYSTEM},
+                {"role": "user",   "content": user_msg},
+            ],
+            max_tokens=1024,
+            temperature=0.2,
+        )
+        text = response.choices[0].message.content
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- qualitative analysis skipped.")
+        return {
+            "description":    "N/A",
+            "moat":           "N/A",
+            "growth_drivers": ["N/A", "N/A"],
+            "risk_factors":   ["N/A", "N/A"],
+            "news":           ["N/A", "N/A", "N/A"],
+        }
 
     def extract(label: str) -> str:
         for line in text.splitlines():
@@ -427,6 +467,8 @@ def _print_profile(p: dict) -> None:
     print(f"  Revenue (3yr) : {rev_line}{tag('revenues')}")
     print(f"  Revenue CAGR  : {_fmt_pct(cagr) if cagr is not None else 'N/A'}{tag('revenues')}")
     print(f"  Free Cash Flow: {_fmt_num(p.get('free_cash_flow'))}{tag('free_cash_flow')}")
+    print(f"  Op. Cash Flow : {_fmt_num(p.get('operating_cash_flow'))}{tag('operating_cash_flow')}")
+    print(f"  Op. Income    : {_fmt_num(p.get('operating_income'))}{tag('operating_income')}")
     print(f"  ROE           : {_fmt_pct(p.get('roe'))}{tag('roe')}")
     insider = p.get("insider_ownership_pct")
     print(f"  Insider Own.  : {_fmt_pct(insider) if insider is not None else 'N/A'}{tag('insider_ownership_pct')}")
@@ -460,6 +502,11 @@ def run(company_name: str) -> dict:
 
     # Step 1 -- ticker resolution
     ticker = _resolve_ticker(company_name)
+
+    # Normalise US-listed tickers: BRK.B -> BRK-B (dot = share class, not exchange suffix)
+    if _is_us_listed(ticker) and "." in ticker:
+        ticker = ticker.replace(".", "-")
+        print(f"        -> Normalised to {ticker}")
 
     # Step 1b -- security type check (Guardrail 1: fatal)
     try:

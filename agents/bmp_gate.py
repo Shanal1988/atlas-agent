@@ -17,11 +17,15 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
             return resp.choices[0].message.content
         except Exception as e:
             print(f"  [Warning] OpenAI BMP model failed ({e}), falling back to Groq.")
-    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-        model=GROQ_MODEL, messages=messages,
-        max_tokens=max_tokens, temperature=temperature,
-    )
-    return resp.choices[0].message.content
+    try:
+        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+            model=GROQ_MODEL, messages=messages,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- BMP scoring skipped.")
+        return ""
 
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
@@ -52,10 +56,17 @@ Q3 MANAGEMENT: Do managers think and act like owners?
 Criteria: insider ownership > 5%, low dilution history, sensible capital allocation.
 
 Q4 GROWTH: Has the company grown sales and earnings consistently?
-Criteria: revenue CAGR > 10% over 3 years, positive free cash flow.
+Criteria: revenue CAGR > 10% over 3 years, positive operating cash flow (OCF).
 
-Q5 PRICE SANITY: Can you arrive at a reasonable earnings yield > 5%?
-Criteria: earnings yield = (1 / P/E) * 100. If P/E is missing or negative, reply NEEDS MANUAL REVIEW.
+Q5 PRICE SANITY: Is the company's earnings power reasonably priced?
+Use Operating Earnings Yield (OEY) = Operating Income x 0.79 / Market Cap x 100.
+OEY strips GAAP noise (stock comp, amortisation) to approximate after-tax earnings power.
+
+YES     -- OEY >= 5% (earnings power multiple <= 20x). Clear value or fair entry.
+PARTIAL -- OEY 3-5% (20-33x earnings power). Expensive but justifiable if growth is strong.
+          Example: OEY = 4.2% -> PARTIAL (borderline expensive, justified by 35% revenue CAGR)
+NO      -- OEY < 3% (>33x earnings power). Priced for perfection with limited margin of safety.
+NEEDS MANUAL REVIEW -- Operating Income is missing, negative, or not provided. Use Earnings Yield as a proxy if available.
 
 Reply in this exact format. Each answer must be on one line. Do not use curly braces:
 Q1: [YES/PARTIAL/NO] One sentence of reasoning here.
@@ -90,19 +101,36 @@ def _profile_context(profile: dict) -> str:
     if pe and pe > 0:
         earnings_yield = round((1 / pe) * 100, 2)
 
+    op_income  = profile.get("operating_income")
+    op_cf      = profile.get("operating_cash_flow")
+    market_cap = profile.get("market_cap")
+    fcf        = profile.get("free_cash_flow")
+
+    oey = None
+    if op_income and market_cap and market_cap > 0:
+        oey = round((op_income * 0.79 / market_cap) * 100, 2)
+
+    fcf_yield = None
+    if fcf and market_cap and market_cap > 0:
+        fcf_yield = round((fcf / market_cap) * 100, 2)
+
     lines = [
         f"Company:           {profile.get('name', 'N/A')}",
         f"Ticker:            {profile.get('ticker', 'N/A')}",
         f"Exchange:          {profile.get('exchange', 'N/A')}",
         f"Sector/Industry:   {profile.get('sector', 'N/A')} / {profile.get('industry', 'N/A')}",
-        f"Market Cap:        {profile.get('market_cap', 'N/A')}",
+        f"Market Cap:        {market_cap if market_cap else 'N/A'}",
         f"Current Price:     {profile.get('current_price', 'N/A')}",
         f"P/E Ratio:         {pe if pe else 'N/A'}",
         f"Earnings Yield:    {earnings_yield}%" if earnings_yield else "Earnings Yield:    N/A",
+        f"Op. Earnings Yield:{oey}% (Op. Income x 0.79 / Mkt Cap)" if oey is not None else "Op. Earnings Yield: N/A",
+        f"FCF Yield:         {fcf_yield}% (FCF / Mkt Cap)" if fcf_yield is not None else "FCF Yield:          N/A",
         f"Beta:              {profile.get('beta', 'N/A')}",
         f"Revenue (3yr):     {rev_str}",
         f"Revenue CAGR:      {cagr}% (3yr)" if cagr is not None else "Revenue CAGR:      N/A",
-        f"Free Cash Flow:    {profile.get('free_cash_flow', 'N/A')}",
+        f"Free Cash Flow:    {fcf if fcf is not None else 'N/A'}",
+        f"Operating Income:  {op_income if op_income is not None else 'N/A'}",
+        f"Op. Cash Flow:     {op_cf if op_cf is not None else 'N/A'}",
         f"ROE:               {roe_str}",
         f"Insider Ownership: {insider_str}",
         f"Competitive Moat:  {profile.get('moat', 'N/A')}",

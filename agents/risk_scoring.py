@@ -20,11 +20,15 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
             return resp.choices[0].message.content
         except Exception as e:
             print(f"  [Warning] OpenAI Risk model failed ({e}), falling back to Groq.")
-    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-        model=GROQ_MODEL, messages=messages,
-        max_tokens=max_tokens, temperature=temperature,
-    )
-    return resp.choices[0].message.content
+    try:
+        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+            model=GROQ_MODEL, messages=messages,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- risk scoring skipped.")
+        return ""
 
 # (name, lo_nos, hi_nos, label, lo_pct, hi_pct)
 _CATEGORIES = [
@@ -218,16 +222,20 @@ def _get_summary(context: str, risk_lines: list[str], category: str,
         f"recommended position size {position_pct}% (range: {alloc_label}).\n\n"
         "Write the 4-6 sentence investment memo paragraph."
     )
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": _SUMMARY_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ],
-        max_tokens=350,
-        temperature=0.2,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": _SUMMARY_SYSTEM},
+                {"role": "user",   "content": user_msg},
+            ],
+            max_tokens=350,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- investment memo skipped.")
+        return "Investment memo unavailable (Groq rate limit)."
 
 
 # -- Parser --------------------------------------------------------------------

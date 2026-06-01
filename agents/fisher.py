@@ -181,16 +181,20 @@ def _score_with_groq(company: str, profile_ctx: str, evidence: str) -> str:
         f"Fisher 15-point questions:\n{_FISHER_QUESTIONS}"
     )
 
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": _FISHER_SYSTEM},
-            {"role": "user",   "content": user_msg},
-        ],
-        max_tokens=1024,
-        temperature=0.1,
-    )
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": _FISHER_SYSTEM},
+                {"role": "user",   "content": user_msg},
+            ],
+            max_tokens=1024,
+            temperature=0.1,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- Fisher scoring skipped.")
+        return ""
 
 
 # -- Parser --------------------------------------------------------------------

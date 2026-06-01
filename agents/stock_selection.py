@@ -22,11 +22,15 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
             return resp.choices[0].message.content
         except Exception as e:
             print(f"  [Warning] OpenAI Selection model failed ({e}), falling back to Groq.")
-    resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-        model=GROQ_MODEL, messages=messages,
-        max_tokens=max_tokens, temperature=temperature,
-    )
-    return resp.choices[0].message.content
+    try:
+        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+            model=GROQ_MODEL, messages=messages,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- selection scoring skipped.")
+        return ""
 
 _SELECTION_SYSTEM = (
     "You are a rigorous long-term equity analyst running a stock selection checklist "
