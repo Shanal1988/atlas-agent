@@ -3,6 +3,58 @@
 import os
 from groq import Groq
 
+_DIGITAL_MATURE_MARGINS = {
+    "internet content & information": 0.35,   # Google, Meta
+    "internet retail":                0.12,   # Amazon blended
+    "software - application":         0.25,
+    "software—application":           0.25,
+    "software - infrastructure":      0.30,
+    "software—infrastructure":        0.30,
+    "semiconductors":                 0.28,
+    "semiconductor equipment":        0.25,
+    "entertainment":                  0.18,   # Netflix, Disney
+    "consumer electronics":           0.12,
+    "information technology services":0.22,
+}
+_DIGITAL_SECTORS = frozenset({"Technology", "Communication Services"})
+
+# Segment-weighted mature margins for multi-business conglomerates.
+# Format: ticker -> [(revenue_share, mature_margin, label), ...]
+# Revenue shares are approximate; refresh annually from 10-K segment data.
+# Sources: Damodaran sector data, company 10-Ks, sell-side comps.
+_SEGMENT_MATURE_MARGINS = {
+    # Amazon: FMP misclassifies as "Specialty Retail"; real mix is 3 distinct businesses
+    "AMZN": [
+        (0.15, 0.35, "AWS"),              # cloud infra; Azure/GCP comp at maturity
+        (0.08, 0.45, "Advertising"),      # ad-tech at scale; Meta/Google comp
+        (0.77, 0.05, "Retail/Logistics"), # e-commerce + fulfilment; thin structural margin
+    ],
+    # Alphabet: search dominance + fast-growing cloud suppressed by infra spend
+    "GOOGL": [
+        (0.56, 0.42, "Search & Ads"),     # near-mature; durable pricing power
+        (0.10, 0.35, "YouTube"),          # ad-supported video at scale
+        (0.13, 0.28, "Google Cloud"),     # investing heavily; Azure/AWS comp
+        (0.21, 0.12, "Other/Bets"),       # subscriptions, hardware, moonshots
+    ],
+    "GOOG": [                             # same economic exposure, different share class
+        (0.56, 0.42, "Search & Ads"),
+        (0.10, 0.35, "YouTube"),
+        (0.13, 0.28, "Google Cloud"),
+        (0.21, 0.12, "Other/Bets"),
+    ],
+    # Meta: core advertising very high-margin; Reality Labs in heavy pre-profit phase
+    "META": [
+        (0.97, 0.48, "Family of Apps"),   # FB/IG/WhatsApp ad engine at maturity
+        (0.03, 0.00, "Reality Labs"),     # deliberate loss; AR/VR platform bet
+    ],
+    # Microsoft: three clearly separated segments with different margin profiles
+    "MSFT": [
+        (0.43, 0.45, "Intelligent Cloud"),        # Azure + server; highest-margin segment
+        (0.33, 0.40, "Productivity & Business"),  # Office 365, LinkedIn, Dynamics
+        (0.24, 0.22, "More Personal Computing"),  # Windows, Gaming, Bing
+    ],
+}
+
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
     """Use fine-tuned OpenAI model if OPENAI_FT_BMP_MODEL is set, else Groq."""
@@ -69,14 +121,25 @@ Q4 GROWTH: Has the company grown sales and earnings consistently?
 Criteria: revenue CAGR > 10% over 3 years, positive operating cash flow (OCF).
 
 Q5 PRICE SANITY: Is the company's earnings power reasonably priced?
-Use Operating Earnings Yield (OEY) = Operating Income x 0.79 / Market Cap x 100.
-OEY strips GAAP noise (stock comp, amortisation) to approximate after-tax earnings power.
 
-YES     -- OEY >= 5% (earnings power multiple <= 20x). Clear value or fair entry.
-PARTIAL -- OEY 3-5% (20-33x earnings power). Expensive but justifiable if growth is strong.
-          Example: OEY = 4.2% -> PARTIAL (borderline expensive, justified by 35% revenue CAGR)
-NO      -- OEY < 3% (>33x earnings power). Priced for perfection with limited margin of safety.
-NEEDS MANUAL REVIEW -- Operating Income is missing, negative, or not provided. Use Earnings Yield as a proxy if available.
+STEP 1 — Reported OEY = Operating Income × 0.79 / Market Cap × 100.
+Strips GAAP noise (stock comp, amortisation) to approximate after-tax earnings power.
+Use this for traditional businesses (industrials, consumer, financial, etc.).
+
+STEP 2 — Normalized OEY (digital/tech companies only, Seessel "Where the Money Is"):
+If Normalized OEY is provided in the data, use it instead for companies suppressing margins
+via heavy growth reinvestment in R&D, S&M, or infrastructure build-out.
+Formula: Revenue × Sector Mature Operating Margin × 0.79 / Market Cap.
+Logic: a company with 60%+ gross margins but <10% operating margin is almost certainly
+reinvesting, not structurally unprofitable. At maturity, margins revert to sector norms.
+→ Use Normalized OEY when it is provided AND materially higher than Reported OEY.
+→ State which OEY you are using in your reasoning.
+
+Thresholds (apply to whichever OEY is relevant):
+YES     -- OEY >= 5%.  Clear value or fair entry.
+PARTIAL -- OEY 3-5%.  Expensive but justifiable if growth is strong.
+NO      -- OEY < 3%.  Priced for perfection, limited margin of safety.
+NEEDS MANUAL REVIEW -- Operating Income missing, negative, or unavailable.
 
 Reply in this exact format. Each answer must be on one line. Do not use curly braces:
 Q1: [YES/PARTIAL/NO] One sentence of reasoning here.
@@ -120,6 +183,38 @@ def _profile_context(profile: dict) -> str:
     if op_income and market_cap and market_cap > 0:
         oey = round((op_income * 0.79 / market_cap) * 100, 2)
 
+    # Seessel normalized OEY
+    normalized_oey    = None
+    mature_margin_pct = None
+    segment_breakdown = None           # human-readable segment decomposition
+    industry_lower    = (profile.get("industry") or "").lower()
+    sector_val        = profile.get("sector") or ""
+    ticker_val        = (profile.get("ticker") or "").upper()
+
+    if ticker_val in _SEGMENT_MATURE_MARGINS:
+        segs = _SEGMENT_MATURE_MARGINS[ticker_val]
+        mature_margin_pct = round(sum(s * m for s, m, _ in segs), 4)
+        segment_breakdown = " + ".join(
+            f"{lbl} ({s:.0%}×{m:.0%})" for s, m, lbl in segs
+        )
+    else:
+        for key, margin in _DIGITAL_MATURE_MARGINS.items():
+            if key in industry_lower:
+                mature_margin_pct = margin
+                break
+    if mature_margin_pct is None and sector_val in _DIGITAL_SECTORS:
+        mature_margin_pct = 0.25  # generic tech fallback
+
+    norm_oey_raw = None   # always computed when possible; used even in N/A line
+    if mature_margin_pct and revenues and market_cap and market_cap > 0:
+        latest_rev = revenues[0].get("revenue") if revenues else None
+        if isinstance(latest_rev, (int, float)) and latest_rev > 0:
+            norm_op_income = latest_rev * mature_margin_pct
+            norm_oey_raw   = round((norm_op_income * 0.79 / market_cap) * 100, 2)
+            # Only surface as the active OEY when normalization reveals materially higher earnings power
+            if oey is None or norm_oey_raw > oey * 1.15:
+                normalized_oey = norm_oey_raw
+
     fcf_yield = None
     if fcf and market_cap and market_cap > 0:
         fcf_yield = round((fcf / market_cap) * 100, 2)
@@ -134,6 +229,20 @@ def _profile_context(profile: dict) -> str:
         f"P/E Ratio:         {pe if pe else 'N/A'}",
         f"Earnings Yield:    {earnings_yield}%" if earnings_yield else "Earnings Yield:    N/A",
         f"Op. Earnings Yield:{oey}% (Op. Income x 0.79 / Mkt Cap)" if oey is not None else "Op. Earnings Yield: N/A",
+        *(
+            # Normalization fires: show as the active OEY with full segment derivation
+            [f"Normalized OEY:    {normalized_oey}% "
+             f"({'Segments: ' + segment_breakdown + ' → ' if segment_breakdown else ''}"
+             f"{mature_margin_pct:.1%} blended op margin × Rev × 0.79 / Mkt Cap) [Seessel — USE THIS for Q5]"]
+            if normalized_oey is not None else
+            # Segment data exists but current margins already near mature — show computed OEY for transparency
+            [f"Normalized OEY:    N/A — computed {norm_oey_raw}% OEY (mature blended op margin {mature_margin_pct:.1%}: "
+             f"{segment_breakdown}) is not materially above reported OEY {oey}%; "
+             f"use reported OEY for Q5"]
+            if segment_breakdown and norm_oey_raw is not None else
+            # No segment data but segment_breakdown set (shouldn't occur) or no data at all
+            ["Normalized OEY:    N/A (traditional business or margins not suppressed by reinvestment)"]
+        ),
         f"FCF Yield:         {fcf_yield}% (FCF / Mkt Cap)" if fcf_yield is not None else "FCF Yield:          N/A",
         f"Beta:              {profile.get('beta', 'N/A')}",
         f"Revenue (3yr):     {rev_str}",
