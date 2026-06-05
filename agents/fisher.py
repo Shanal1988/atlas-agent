@@ -5,7 +5,7 @@ from groq import Groq
 from tavily import TavilyClient
 
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 _FISHER_SYSTEM = (
     "You are Philip Fisher reincarnated as an AI equity analyst. "
@@ -181,20 +181,19 @@ def _score_with_groq(company: str, profile_ctx: str, evidence: str) -> str:
         f"Fisher 15-point questions:\n{_FISHER_QUESTIONS}"
     )
 
+    _msgs = [
+        {"role": "system", "content": _FISHER_SYSTEM},
+        {"role": "user",   "content": user_msg},
+    ]
     try:
         response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": _FISHER_SYSTEM},
-                {"role": "user",   "content": user_msg},
-            ],
-            max_tokens=1024,
-            temperature=0.1,
+            model=GROQ_MODEL, messages=_msgs, max_tokens=1024, temperature=0.1,
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- Fisher scoring skipped.")
-        return ""
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
+        from agents.llm_client import gemini_call
+        return gemini_call(_msgs, max_tokens=1024, temperature=0.1, stage="Fisher scoring")
 
 
 # -- Parser --------------------------------------------------------------------

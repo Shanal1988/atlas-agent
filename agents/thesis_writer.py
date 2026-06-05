@@ -30,8 +30,9 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
         )
         return resp.choices[0].message.content
     except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- thesis writing skipped.")
-        return ""
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
+        from agents.llm_client import gemini_call
+        return gemini_call(messages, max_tokens, temperature, stage="thesis writing")
 
 _FINANCIAL_FINTECH_KEYWORDS = {
     "payment", "fintech", "financial technology", "banking",

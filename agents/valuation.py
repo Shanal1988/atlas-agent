@@ -22,6 +22,26 @@ PHASES_LOWER  = [(1, 3, 0.12), (4, 6, 0.10), (7, 10, 0.08)]
 PHASES_HIGHER = [(1, 3, 0.15), (4, 6, 0.12), (7, 10, 0.10)]
 
 
+# -- Financial company detection -----------------------------------------------
+# Mirrored from stock_selection.py; kept here to avoid circular imports.
+
+_FINANCIAL_SECTORS = {"Financial Services", "Real Estate"}
+_FINANCIAL_FINTECH_KEYWORDS = {
+    "payment", "fintech", "financial technology", "banking",
+    "insurance", "credit services", "capital markets", "money transfer",
+}
+
+
+def _is_financial_company(profile: dict) -> bool:
+    """Return True if OCF/FCF is likely distorted by customer float or deposits."""
+    sector      = (profile.get("sector") or "").strip()
+    industry    = (profile.get("industry") or "").lower()
+    description = (profile.get("description") or "").lower()
+    if sector in _FINANCIAL_SECTORS:
+        return True
+    return any(kw in f"{industry} {description}" for kw in _FINANCIAL_FINTECH_KEYWORDS)
+
+
 # -- yfinance helpers -----------------------------------------------------------
 
 def _safe_float(val):
@@ -83,6 +103,29 @@ def _fetch_extra(ticker: str) -> dict:
             if len(ni_hist) >= 5 and ni_hist[-1] and ni_hist[-1] > 0:
                 out["ni_cagr_5yr"] = round((ni_hist[0] / ni_hist[-1]) ** (1 / 4) - 1, 4)
 
+        # Operating income + tax data (needed for NOPAT earnings of financial companies)
+        if fin is not None and not fin.empty:
+            for k in ("Operating Income", "EBIT", "Operating Profit"):
+                if k in fin.index:
+                    val = _safe_float(fin.loc[k].iloc[0])
+                    if val is not None:
+                        out["operating_income_mn"] = val / 1e6
+                        break
+
+            for k in ("Tax Provision", "Income Tax Expense", "Income Tax"):
+                if k in fin.index:
+                    val = _safe_float(fin.loc[k].iloc[0])
+                    if val is not None and val != 0:
+                        out["income_tax_mn"] = abs(val) / 1e6
+                        break
+
+            for k in ("Pretax Income", "Income Before Tax", "Pre Tax Income"):
+                if k in fin.index:
+                    val = _safe_float(fin.loc[k].iloc[0])
+                    if val is not None:
+                        out["pretax_income_mn"] = val / 1e6
+                        break
+
         # D&A breakdown for maintenance capex estimation.
         # Preferred: fetch physical depreciation and intangible amortisation separately.
         # Physical depreciation is a genuine cash maintenance cost (servers age, trucks wear
@@ -138,6 +181,20 @@ def _fetch_extra(ticker: str) -> dict:
     except Exception:
         pass
     return out
+
+
+# -- Effective tax rate ---------------------------------------------------------
+
+def _effective_tax_rate(extra: dict) -> float:
+    """
+    Derive effective tax rate from income_tax / pretax_income.
+    Clamped to [0.10, 0.40]. Defaults to 0.25 (global average) if unavailable.
+    """
+    tax    = extra.get("income_tax_mn")
+    pretax = extra.get("pretax_income_mn")
+    if tax is not None and pretax and pretax > 0:
+        return max(0.10, min(0.40, tax / pretax))
+    return 0.25
 
 
 # -- Capex-heavy detection ------------------------------------------------------
@@ -315,6 +372,107 @@ def _compute_owner_earnings(
         "growth_capex_mn":   None,
         "method":            "OCF (D&A unavailable - maintenance capex not deducted)",
     }
+
+# -- NOPAT-based Owner Earnings for financial / fintech companies ---------------
+#
+# Problem: payment processors, fintechs, and banks report OCF that is severely
+# distorted by changes in customer balances (float).
+#
+#   Example — Wise FY2025:
+#     Reported OCF    = £4.5B
+#     Operating Income = £558M
+#     Gap (£3.9B)     = customer deposits flowing through working capital —
+#                       these funds belong to customers, not shareholders.
+#
+# Solution: start from Operating Income (EBIT), which is computed ABOVE the
+# working capital / float line.  Float changes never reach Operating Income;
+# only fee revenues and FX-spread income minus operating costs are captured.
+#
+# Formula (Damodaran FCFF / McKinsey approach):
+#   NOPAT               = Operating Income × (1 − effective tax rate)
+#   + D&A (maintenance) ← add back non-cash charge already deducted in EBIT
+#   − Maintenance Capex ← subtract real cash replacement cost
+#   = Adjusted Owner Earnings
+#
+# For asset-light fintechs: D&A ≈ Maintenance Capex → Adj OE ≈ NOPAT
+#
+# Net cash treatment: balance sheet cash for payment companies includes
+# segregated customer funds (asset offset by customer balance liabilities).
+# We set net_cash = 0 conservatively so float does not inflate IV.
+#
+# References: Damodaran (FCFF for financial firms, NYU), Koller/Goedhart/Wessels
+# (McKinsey Valuation 7e ch.9), Penman (Financial Statement Analysis).
+
+
+def _compute_nopat_owner_earnings(
+    op_income_mn: float,
+    tax_rate: float,
+    da_mn: float | None,
+    total_capex_mn: float | None,
+    sector: str = "",
+    depreciation_mn: float | None = None,
+    amort_intangibles_mn: float | None = None,
+) -> dict:
+    """
+    Float-adjusted Owner Earnings for financial/fintech companies.
+    Returns: nopat_owner_earnings_mn, nopat_mn, tax_rate, maint_capex_mn, method.
+    """
+    nopat = op_income_mn * (1 - tax_rate)
+
+    # Estimate maintenance D&A — same 3-tier priority as _compute_owner_earnings
+    maint_da: float | None = None
+    da_method = ""
+
+    if depreciation_mn and amort_intangibles_mn:
+        amort_factor = _AMORT_CASH_FACTOR.get(sector, _AMORT_CASH_FACTOR["default"])
+        maint_da  = depreciation_mn + amort_intangibles_mn * amort_factor
+        da_method = (
+            f"Depr {_mn(depreciation_mn)} + "
+            f"Intangible Amort {_mn(amort_intangibles_mn)} × {amort_factor:.0%} "
+            f"[{sector or 'default'} sector]"
+        )
+    elif depreciation_mn and depreciation_mn > 0:
+        maint_da  = depreciation_mn
+        da_method = f"Physical depreciation {_mn(depreciation_mn)} (100% real)"
+    elif da_mn and da_mn > 0:
+        factor    = _DA_BLENDED_FACTOR.get(sector, _DA_BLENDED_FACTOR["default"])
+        maint_da  = da_mn * factor
+        da_method = f"D&A {_mn(da_mn)} × {factor:.0%} [{sector or 'default'} blended]"
+
+    if maint_da is not None:
+        # Actual maintenance capex is the lesser of estimated D&A and reported capex
+        maint_capex = maint_da
+        if total_capex_mn and total_capex_mn > 0:
+            maint_capex = min(maint_da, total_capex_mn)
+        # NOPAT + D&A (add back non-cash) − Maintenance Capex (real cash cost)
+        # Both sides are roughly equal for asset-light companies → ≈ NOPAT
+        oe     = nopat + maint_da - maint_capex
+        method = (
+            f"NOPAT {_mn(nopat)} "
+            f"(OpIncome {_mn(op_income_mn)} × {1 - tax_rate:.0%} after-tax, "
+            f"tax rate {tax_rate:.0%}) "
+            f"+ D&A {_mn(maint_da)} − Maint. Capex {_mn(maint_capex)} "
+            f"[{da_method}]"
+        )
+    else:
+        oe          = nopat
+        maint_capex = None
+        method      = (
+            f"NOPAT {_mn(nopat)} "
+            f"(OpIncome {_mn(op_income_mn)} × {1 - tax_rate:.0%} after-tax, "
+            f"tax rate {tax_rate:.0%}) "
+            f"[D&A unavailable — no maintenance capex adjustment]"
+        )
+
+    return {
+        "nopat_owner_earnings_mn": oe,
+        "nopat_mn":                nopat,
+        "tax_rate":                tax_rate,
+        "maint_da_mn":             maint_da,
+        "maint_capex_mn":          maint_capex,
+        "method":                  method,
+    }
+
 
 # -- Cash flow projection -------------------------------------------------------
 

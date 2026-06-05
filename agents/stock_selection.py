@@ -6,7 +6,7 @@ import pandas as pd
 from groq import Groq
 
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
@@ -29,8 +29,9 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
         )
         return resp.choices[0].message.content
     except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- selection scoring skipped.")
-        return ""
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
+        from agents.llm_client import gemini_call
+        return gemini_call(messages, max_tokens, temperature, stage="selection")
 
 _SELECTION_SYSTEM = (
     "You are a rigorous long-term equity analyst running a stock selection checklist "

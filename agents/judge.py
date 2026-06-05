@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from groq import Groq
 
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 
 # -- Result type ---------------------------------------------------------------
@@ -97,19 +97,20 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
         + "\n".join(lines)
     )
 
+    _msgs = [
+        {"role": "system", "content": _JUSTIFICATION_SYSTEM},
+        {"role": "user",   "content": user_msg},
+    ]
     try:
         raw = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": _JUSTIFICATION_SYSTEM},
-                {"role": "user",   "content": user_msg},
-            ],
-            max_tokens=300,
-            temperature=0.1,
+            model=GROQ_MODEL, messages=_msgs, max_tokens=300, temperature=0.1,
         ).choices[0].message.content.strip()
-    except Exception as e:
+    except Exception:
+        from agents.llm_client import gemini_call
+        raw = gemini_call(_msgs, max_tokens=300, temperature=0.1)
+    if not raw:
         return JudgeResult(judge=judge_id, passed=True, severity="INFO",
-                           flags=[f"Judge unavailable: {e}"])
+                           flags=["Judge unavailable: all LLMs failed"])
 
     if raw.upper() == "ALL_CONSISTENT":
         return JudgeResult(judge=judge_id, passed=True, severity="INFO")
@@ -149,19 +150,20 @@ def check_bull_bear_balance(company: str, bear_case: list) -> JudgeResult:
     bears_text = "\n".join(f"BEAR_{i+1}: {b}" for i, b in enumerate(non_empty))
     user_msg = f"Company: {company}\n\nBear case points:\n{bears_text}"
 
+    _msgs = [
+        {"role": "system", "content": _BEAR_SYSTEM},
+        {"role": "user",   "content": user_msg},
+    ]
     try:
         raw = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": _BEAR_SYSTEM},
-                {"role": "user",   "content": user_msg},
-            ],
-            max_tokens=200,
-            temperature=0.1,
+            model=GROQ_MODEL, messages=_msgs, max_tokens=200, temperature=0.1,
         ).choices[0].message.content.strip()
-    except Exception as e:
+    except Exception:
+        from agents.llm_client import gemini_call
+        raw = gemini_call(_msgs, max_tokens=200, temperature=0.1)
+    if not raw:
         return JudgeResult(judge="bull_bear_balance", passed=True, severity="INFO",
-                           flags=[f"Judge unavailable: {e}"])
+                           flags=["Judge unavailable: all LLMs failed"])
 
     if raw.upper() == "ALL_STRONG":
         return JudgeResult(judge="bull_bear_balance", passed=True, severity="INFO")
@@ -290,19 +292,20 @@ def check_thesis_coherence(
         f"Conviction {conviction}, Category {category}, "
         f"Decision {decision}"
     )
+    _msgs = [
+        {"role": "system", "content": _COHERENCE_SYSTEM},
+        {"role": "user",   "content": f"Company: {company}\n{summary}"},
+    ]
     try:
         raw = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": _COHERENCE_SYSTEM},
-                {"role": "user",   "content": f"Company: {company}\n{summary}"},
-            ],
-            max_tokens=80,
-            temperature=0.1,
+            model=GROQ_MODEL, messages=_msgs, max_tokens=80, temperature=0.1,
         ).choices[0].message.content.strip()
-    except Exception as e:
+    except Exception:
+        from agents.llm_client import gemini_call
+        raw = gemini_call(_msgs, max_tokens=80, temperature=0.1)
+    if not raw:
         return JudgeResult(judge="thesis_coherence", passed=True, severity="INFO",
-                           flags=[f"Judge unavailable: {e}"])
+                           flags=["Judge unavailable: all LLMs failed"])
 
     if raw.upper().startswith("INCONSISTENT"):
         return JudgeResult(judge="thesis_coherence", passed=False,

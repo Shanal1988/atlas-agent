@@ -13,7 +13,8 @@ from agents.guardrails import check_security_type
 # -- Constants -----------------------------------------------------------------
 
 FMP_BASE = "https://financialmodelingprep.com/stable"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL      = "meta-llama/llama-4-scout-17b-16e-instruct"  # profile building
+GROQ_MODEL_FAST = "llama-3.1-8b-instant"             # ticker extraction
 
 # Yahoo Finance exchange suffixes that indicate non-US listings -> use yfinance
 _INTL_SUFFIXES = {
@@ -94,18 +95,22 @@ def _resolve_ticker(company_name: str) -> str:
         f"Search results:\n{snippets}"
     )
 
+    _msgs = [{"role": "user", "content": prompt}]
     try:
         response = _groq().chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=16,
-            temperature=0,
+            model=GROQ_MODEL_FAST, messages=_msgs, max_tokens=16, temperature=0,
         )
         raw = response.choices[0].message.content.strip().upper()
         ticker = raw.split()[0].strip(".,;:()'\"")
     except Exception as e:
-        print(f"        -> Groq unavailable ({type(e).__name__}), using input as ticker")
-        ticker = company_name.upper().split()[0].strip(".,;:()'\"")
+        print(f"        -> Groq unavailable ({type(e).__name__}), trying Gemini...")
+        from agents.llm_client import gemini_call
+        raw = gemini_call(_msgs, max_tokens=16, temperature=0)
+        if raw:
+            ticker = raw.strip().upper().split()[0].strip(".,;:()'\"")
+        else:
+            print("        -> Gemini unavailable, using input as ticker")
+            ticker = company_name.upper().split()[0].strip(".,;:()'\"")
     print(f"        -> {ticker}")
     return ticker
 
@@ -371,19 +376,20 @@ def _fetch_qualitative(company_name: str, ticker: str) -> dict:
         f"Search results:\n{combined}"
     )
 
+    _msgs = [
+        {"role": "system", "content": _ANALYST_SYSTEM},
+        {"role": "user",   "content": user_msg},
+    ]
     try:
         response = _groq().chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {"role": "system", "content": _ANALYST_SYSTEM},
-                {"role": "user",   "content": user_msg},
-            ],
-            max_tokens=1024,
-            temperature=0.2,
+            model=GROQ_MODEL, messages=_msgs, max_tokens=1024, temperature=0.2,
         )
         text = response.choices[0].message.content
     except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- qualitative analysis skipped.")
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
+        from agents.llm_client import gemini_call
+        text = gemini_call(_msgs, max_tokens=1024, temperature=0.2, stage="qualitative analysis")
+    if not text:
         return {
             "description":    "N/A",
             "moat":           "N/A",

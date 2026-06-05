@@ -24,11 +24,12 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
         )
         return resp.choices[0].message.content
     except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}) -- BMP scoring skipped.")
-        return ""
+        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
+        from agents.llm_client import gemini_call
+        return gemini_call(messages, max_tokens, temperature, stage="BMP")
 
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 _BMP_SYSTEM = (
     "You are a disciplined long-term equity analyst using the BMP checklist framework. "
