@@ -255,6 +255,32 @@ def _build_context(profile: dict, bmp_result: dict,
             excerpt,
         ]
 
+    # Recent news — verbatim, so bear case bullets can cite named events and figures
+    news_items = [n for n in (profile.get("news") or []) if n and n != "N/A"]
+    if news_items:
+        lines += ["", "=== RECENT NEWS (use specific named events and figures in bear case) ==="]
+        for item in news_items:
+            lines.append(f"- {item}")
+
+    # Regulatory alerts — pin any news containing investigation/fine/regulatory keywords
+    # so the thesis writer quotes them precisely rather than hedging with 'could'
+    _REG_KEYWORDS = ("investigat", "fine", "penalty", "sanction", "regulat",
+                     "summons", "prosecutor", "laundering", "compliance")
+    reg_alerts = [n for n in news_items
+                  if any(kw in n.lower() for kw in _REG_KEYWORDS)]
+    if reg_alerts:
+        lines += [
+            "",
+            "=== REGULATORY ALERTS — QUOTE THESE VERBATIM IN BEAR CASE, NO HEDGING ===",
+            "INSTRUCTION: For every bear point that touches regulatory risk, you MUST:",
+            "  1. Name the specific authority (e.g. Belgian prosecutors / National Bank of Belgium)",
+            "  2. State the specific figure (e.g. €500 million in suspicious transactions)",
+            "  3. State the specific consequence (e.g. criminal court summons, EU licence referral)",
+            "  4. Do NOT use 'could', 'may', or 'might' — these are ACTIVE proceedings, not hypotheticals",
+        ]
+        for alert in reg_alerts:
+            lines.append(f"ALERT: {alert}")
+
     return "\n".join(lines)
 
 

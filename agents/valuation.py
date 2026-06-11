@@ -658,13 +658,26 @@ def _print_valuation(profile: dict, r: dict) -> None:
     cf_label   = r.get("base_label", "FCF")
     base_mn    = r.get("base_mn")
     fcf_mn_ref = r.get("fcf_mn")
+    is_fin     = r.get("is_financial", False)
     is_ch      = r.get("is_capex_heavy", False)
 
     print(f"\n{'=' * W}")
     print("  ATLAS: INTRINSIC VALUE ANALYSIS")
     print(f"{'=' * W}")
     print(f"  Company:         {profile.get('name', 'N/A')}")
-    if is_ch:
+    if is_fin:
+        nopat_method = r.get("nopat_method", "")
+        op_income_mn = r.get("op_income_mn")
+        nopat_mn     = r.get("nopat_mn")
+        ocf_mn_ref   = r.get("ocf_mn")
+        print(f"  Base {cf_label}:   {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))} "
+              f"(customer float zeroed)")
+        print(f"  Derivation:      Op. Income {_mn(op_income_mn)} → "
+              f"NOPAT {_mn(nopat_mn)} (after-tax)")
+        print(f"  [OCF {_mn(ocf_mn_ref)} excluded — distorted by customer float/deposits]")
+        if nopat_method:
+            print(f"  Method:          {nopat_method}")
+    elif is_ch:
         oe_method    = r.get("oe_method", "")
         maint_mn     = r.get("maint_capex_mn")
         growth_mn    = r.get("growth_capex_mn")
@@ -784,28 +797,63 @@ def run(profile: dict) -> dict:
     pe       = profile.get("pe_ratio")
     rev_cagr = profile.get("revenue_cagr")
 
-    # Detect capex-heavy reinvestment cycle
-    is_capex_heavy = _capex_heavy_mode(fcf_abs, ocf_abs)
+    # Detect financial company (OCF/FCF distorted by customer float or deposits)
+    is_financial = _is_financial_company(profile)
+
+    # Detect capex-heavy reinvestment cycle (non-financial only)
+    is_capex_heavy = (not is_financial) and _capex_heavy_mode(fcf_abs, ocf_abs)
 
     if not (fcf_abs and fcf_abs > 0) and not (ocf_abs and ocf_abs > 0):
-        print(f"\n  [Valuation] FCF/OCF not available for {company} -- skipping.")
-        return {"available": False}
+        op_income_abs = profile.get("operating_income")
+        if not (is_financial and op_income_abs and op_income_abs > 0):
+            print(f"\n  [Valuation] FCF/OCF not available for {company} -- skipping.")
+            return {"available": False}
 
     print(f"\n  [Valuation] Fetching supplementary data for {company}...")
     extra = _fetch_extra(ticker)
 
-    fcf_mn      = fcf_abs / 1e6 if fcf_abs else None
-    ocf_mn      = ocf_abs / 1e6 if ocf_abs else None
-    mktcap_mn   = mktcap / 1e6 if mktcap else None
-    net_cash_mn = extra.get("net_cash_mn") or 0.0
+    fcf_mn    = fcf_abs / 1e6 if fcf_abs else None
+    ocf_mn    = ocf_abs / 1e6 if ocf_abs else None
+    mktcap_mn = mktcap / 1e6 if mktcap else None
+    # Financial companies: zero out net cash — balance sheet cash includes segregated
+    # customer funds that are offset by customer balance liabilities, not shareholder value.
+    net_cash_mn = 0.0 if is_financial else (extra.get("net_cash_mn") or 0.0)
     shares      = extra.get("shares_outstanding")
     ni_mn       = extra.get("ni_latest_mn")
     avg_ni_mn   = extra.get("avg_5yr_ni_mn")
     ni_cagr     = extra.get("ni_cagr_5yr")
 
-    # Derive Owner Earnings for capex-heavy companies
+    # Path 1: Financial company — use NOPAT-based Owner Earnings to strip out float distortion
+    nopat_info: dict = {}
     oe_info: dict = {}
-    if is_capex_heavy and ocf_mn:
+
+    if is_financial:
+        op_income_abs = profile.get("operating_income")
+        if op_income_abs and op_income_abs > 0:
+            op_income_mn = op_income_abs / 1e6
+            tax_rate     = _effective_tax_rate(extra)
+            nopat_info   = _compute_nopat_owner_earnings(
+                op_income_mn=op_income_mn,
+                tax_rate=tax_rate,
+                da_mn=extra.get("da_mn"),
+                total_capex_mn=extra.get("total_capex_mn"),
+                sector=profile.get("sector", ""),
+                depreciation_mn=extra.get("depreciation_mn"),
+                amort_intangibles_mn=extra.get("amort_intangibles_mn"),
+            )
+            base_mn    = nopat_info["nopat_owner_earnings_mn"]
+            base_label = "NOPAT OE"
+            print(f"\n  [Valuation] Financial company detected — OCF {_mn(ocf_mn)} "
+                  f"distorted by customer float.")
+            print(f"  [Valuation] Using NOPAT-based Owner Earnings: {nopat_info['method']}")
+        else:
+            print(f"\n  [Valuation] Financial company — Operating Income unavailable; "
+                  f"falling back to OCF (results will be distorted).")
+            base_mn    = ocf_mn
+            base_label = "OCF"
+
+    # Path 2: Capex-heavy reinvestment cycle — derive Owner Earnings from OCF
+    elif is_capex_heavy and ocf_mn:
         oe_info = _compute_owner_earnings(
             ocf_mn=ocf_mn,
             da_mn=extra.get("da_mn"),
@@ -846,10 +894,14 @@ def run(profile: dict) -> dict:
         "available":        True,
         "base_mn":          base_mn,
         "base_label":       base_label,
+        "is_financial":     is_financial,
         "is_capex_heavy":   is_capex_heavy,
         "fcf_mn":           fcf_mn,
         "ocf_mn":           ocf_mn,
-        "maint_capex_mn":   oe_info.get("maint_capex_mn"),
+        "op_income_mn":     profile.get("operating_income", 0) / 1e6 if profile.get("operating_income") else None,
+        "nopat_mn":         nopat_info.get("nopat_mn"),
+        "nopat_method":     nopat_info.get("method", ""),
+        "maint_capex_mn":   nopat_info.get("maint_capex_mn") or oe_info.get("maint_capex_mn"),
         "growth_capex_mn":  oe_info.get("growth_capex_mn"),
         "oe_method":        oe_info.get("method", ""),
         "net_cash_mn":      net_cash_mn,

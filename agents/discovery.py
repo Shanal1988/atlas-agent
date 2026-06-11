@@ -515,10 +515,38 @@ def run(company_name: str) -> dict:
         print(f"        -> Normalised to {ticker}")
 
     # Step 1b -- security type check (Guardrail 1: fatal)
+    # If the bare ticker resolves to a non-equity (e.g. WISE → US ETF), try
+    # appending exchange suffixes in priority order before giving up.
+    # This handles name collisions such as Wise plc (WISE.L) vs WISE ETF.
+    _SUFFIX_FALLBACKS = [".L", ".AS", ".TO", ".PA", ".DE", ".AX",
+                         ".HK", ".SW", ".MI", ".CO", ".ST", ".OL"]
     try:
         _info = yf.Ticker(ticker).info
         error = check_security_type(ticker, _info)
-        if error:
+        if error and "." not in ticker:
+            # Bare ticker failed — try international suffixes
+            print(f"        -> {ticker} is not an equity; trying exchange suffixes...")
+            recovered = False
+            for suffix in _SUFFIX_FALLBACKS:
+                candidate = ticker + suffix
+                try:
+                    _cinfo = yf.Ticker(candidate).info
+                    if not _cinfo:
+                        continue
+                    cerror = check_security_type(candidate, _cinfo)
+                    if cerror is None and _cinfo.get("marketCap"):
+                        ticker = candidate
+                        _info  = _cinfo
+                        error  = None
+                        print(f"        -> Resolved to {ticker}")
+                        recovered = True
+                        break
+                except Exception:
+                    continue
+            if not recovered:
+                print(f"\n{error}")
+                sys.exit(1)
+        elif error:
             print(f"\n{error}")
             sys.exit(1)
     except SystemExit:
