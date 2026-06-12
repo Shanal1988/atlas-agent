@@ -5,6 +5,7 @@ streamlit
 yfinance
 groq
 tavily-python
+duckduckgo-search
 
 # Optional — fine-tuning (OpenAI fine-tune jobs and opt-in inference)
 # Install to enable: pip install openai

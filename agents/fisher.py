@@ -2,7 +2,6 @@
 
 import os
 from groq import Groq
-from tavily import TavilyClient
 
 
 GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -54,17 +53,33 @@ P15 MANAGEMENT INTEGRITY:  Does the company have management of unquestionable in
 """
 
 
-# -- Tavily helpers ------------------------------------------------------------
+# -- Web search helpers --------------------------------------------------------
 
-def _tavily() -> TavilyClient:
-    return TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
+def _web_search(query: str, max_results: int = 4) -> list[dict]:
+    """Search via Tavily (preferred) or DuckDuckGo (fallback)."""
+    tavily_key = os.environ.get("TAVILY_API_KEY", "")
+    if tavily_key:
+        try:
+            from tavily import TavilyClient
+            results = TavilyClient(api_key=tavily_key).search(query=query, max_results=max_results)
+            return [{"title": r["title"], "content": r["content"]} for r in results.get("results", [])]
+        except Exception:
+            pass
+    try:
+        from ddgs import DDGS
+        results = list(DDGS().text(query, max_results=max_results))
+        if results:
+            return [{"title": r.get("title", ""), "content": r.get("body", "")} for r in results]
+    except Exception:
+        pass
+    return []
 
 
 def _search(query: str, max_results: int = 4) -> str:
-    results = _tavily().search(query=query, max_results=max_results)
+    results = _web_search(query, max_results=max_results)
     return "\n\n".join(
         f"[{r['title']}]\n{r['content']}"
-        for r in results.get("results", [])
+        for r in results
     )
 
 
@@ -73,7 +88,7 @@ def _gather_evidence(company: str, ticker: str = "") -> str:
     Five batched Tavily searches covering all 15 Fisher points.
     If RAG documents are indexed for the ticker, prepends retrieved evidence
     from annual reports, earnings transcripts, and sector KB before the
-    live Tavily results. Falls back to Tavily-only if RAG is unavailable.
+    live web search results. Falls back to web-search-only if RAG is unavailable.
     """
     tavily_queries = {
         "Market expansion & R&D pipeline (P1-P3)":
@@ -88,7 +103,7 @@ def _gather_evidence(company: str, ticker: str = "") -> str:
             f"{company} competitive position long term strategy share dilution management integrity shareholder",
     }
 
-    # Tavily evidence (always runs)
+    # Web search evidence (always runs)
     tavily_sections = []
     for label, query in tavily_queries.items():
         content = _search(query)
@@ -123,7 +138,7 @@ def _gather_evidence(company: str, ticker: str = "") -> str:
                     return (
                         "=== RAG Evidence (Annual Reports / Transcripts / Sector KB) ===\n\n"
                         + rag_combined
-                        + "\n\n=== Live Web Search (Tavily) ===\n\n"
+                        + "\n\n=== Live Web Search ===\n\n"
                         + tavily_combined
                     )
         except Exception:
@@ -173,8 +188,6 @@ def _profile_context(profile: dict) -> str:
 # -- Groq scoring --------------------------------------------------------------
 
 def _score_with_groq(company: str, profile_ctx: str, evidence: str) -> str:
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-
     user_msg = (
         f"Company financial data:\n{profile_ctx}\n\n"
         f"Research evidence:\n{evidence}\n\n"
@@ -186,6 +199,7 @@ def _score_with_groq(company: str, profile_ctx: str, evidence: str) -> str:
         {"role": "user",   "content": user_msg},
     ]
     try:
+        client = Groq(api_key=os.environ["GROQ_API_KEY"])
         response = client.chat.completions.create(
             model=GROQ_MODEL, messages=_msgs, max_tokens=1024, temperature=0.1,
         )

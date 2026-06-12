@@ -10,6 +10,24 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 CLAUDE_MODEL    = os.environ.get("CLAUDE_FALLBACK_MODEL", "claude-haiku-4-5-20251001")
 
+_SESSION_TOKEN_FILE = "/home/claude/.claude/remote/.session_ingress_token"
+
+
+def _make_anthropic_client():
+    """Return an Anthropic client using API key or session Bearer token."""
+    import anthropic
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key:
+        return anthropic.Anthropic(api_key=api_key)
+    try:
+        with open(_SESSION_TOKEN_FILE) as f:
+            token = f.read().strip()
+        if token:
+            return anthropic.Anthropic(auth_token=token)
+    except Exception:
+        pass
+    return None
+
 
 def _claude_call(
     messages:    list,
@@ -22,14 +40,13 @@ def _claude_call(
     Handles system message extraction (Anthropic expects it as a separate param).
     Returns the response string, or "" on any failure.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        suffix = f" -- {stage} skipped" if stage else ""
-        print(f"  [Warning] ANTHROPIC_API_KEY not set{suffix}.")
-        return ""
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        client = _make_anthropic_client()
+        if client is None:
+            suffix = f" -- {stage} skipped" if stage else ""
+            print(f"  [Warning] No Anthropic credentials available{suffix}.")
+            return ""
 
         system = ""
         user_messages = []

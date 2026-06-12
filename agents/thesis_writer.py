@@ -292,7 +292,7 @@ def _write_thesis_sections(context: str) -> str:
             {"role": "system", "content": _THESIS_SYSTEM},
             {"role": "user",   "content": context},
         ],
-        max_tokens=1500,
+        max_tokens=3000,
         temperature=0.15,
     )
 
@@ -312,21 +312,31 @@ def _parse_sections(text: str) -> dict:
     buffer: list[str] = []
 
     for line in text.splitlines():
+        # Normalise markdown headers: "## LABEL" or "### LABEL" -> "LABEL:"
+        stripped_line = line.strip()
+        if stripped_line.startswith("#"):
+            stripped_line = stripped_line.lstrip("#").strip()
+            # Re-add the colon if missing so the label check works
+            if not stripped_line.endswith(":"):
+                stripped_line = stripped_line + ":"
+        # Skip markdown horizontal rules
+        if stripped_line in ("---", "***", "___"):
+            continue
         matched = False
         for label in _SECTION_LABELS:
-            if line.strip().startswith(f"{label}:"):
+            if stripped_line.startswith(f"{label}:") or stripped_line == label + ":":
                 # flush previous
                 if current_label:
                     result[current_label] = " ".join(buffer).strip()
                 current_label = label
-                rest = line.strip()[len(label) + 1:].strip()
+                rest = stripped_line[len(label) + 1:].strip()
                 buffer = [rest] if rest else []
                 matched = True
                 break
         if not matched and current_label:
-            stripped = line.strip()
-            if stripped:
-                buffer.append(stripped)
+            content = line.strip()
+            if content:
+                buffer.append(content)
 
     if current_label:
         result[current_label] = " ".join(buffer).strip()

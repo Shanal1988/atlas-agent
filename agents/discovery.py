@@ -6,7 +6,6 @@ import requests
 import yfinance as yf
 import pandas as pd
 from groq import Groq
-from tavily import TavilyClient
 from agents.guardrails import check_security_type
 
 
@@ -48,8 +47,38 @@ _INTL_SUFFIXES = {
 def _groq() -> Groq:
     return Groq(api_key=os.environ["GROQ_API_KEY"])
 
-def _tavily() -> TavilyClient:
-    return TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
+
+def _web_search(query: str, max_results: int = 5) -> list[dict]:
+    """Search via Tavily (preferred), DuckDuckGo (fallback), or return empty list."""
+    tavily_key = os.environ.get("TAVILY_API_KEY", "")
+    if tavily_key:
+        try:
+            from tavily import TavilyClient
+            results = TavilyClient(api_key=tavily_key).search(query=query, max_results=max_results)
+            return [{"title": r["title"], "content": r["content"]} for r in results.get("results", [])]
+        except Exception:
+            pass
+    try:
+        from ddgs import DDGS
+        results = list(DDGS().text(query, max_results=max_results))
+        if results:
+            return [{"title": r.get("title", ""), "content": r.get("body", "")} for r in results]
+    except Exception:
+        pass
+    return []
+
+
+def _claude_research(query: str) -> str:
+    """Use Claude's training knowledge as a last-resort research source."""
+    from agents.llm_client import gemini_call
+    msgs = [
+        {"role": "system", "content": (
+            "You are a financial research assistant with extensive knowledge of public companies. "
+            "Answer based on your training knowledge. Be factual and concise."
+        )},
+        {"role": "user", "content": f"Research query: {query}\n\nProvide a concise factual summary based on your knowledge."},
+    ]
+    return gemini_call(msgs, max_tokens=512, temperature=0.1, stage="research")
 
 
 # -- Exchange routing ----------------------------------------------------------
@@ -69,22 +98,24 @@ def _is_us_listed(ticker: str) -> bool:
 
 def _resolve_ticker(company_name: str) -> str:
     """
-    Tavily search -> Groq extraction.
+    Web search -> LLM extraction. Falls back to LLM knowledge when search unavailable.
     Returns ticker with correct exchange suffix (e.g. ADYEN.AS, WISE.L, AAPL).
     """
     print("  [1/3] Resolving ticker...")
 
-    results = _tavily().search(
-        query=f"{company_name} stock ticker symbol exchange",
-        max_results=5,
-    )
+    results = _web_search(f"{company_name} stock ticker symbol exchange", max_results=5)
     snippets = "\n\n".join(
         f"Title: {r['title']}\n{r['content']}"
-        for r in results.get("results", [])
+        for r in results
     )
 
+    if snippets:
+        context_line = f"Search results:\n{snippets}"
+    else:
+        context_line = "(No search results available — use your training knowledge.)"
+
     prompt = (
-        f'From the search results below, extract the primary stock ticker symbol for "{company_name}".\n\n'
+        f'Identify the primary stock ticker symbol for "{company_name}".\n\n'
         "Rules:\n"
         "- US-listed (NYSE/NASDAQ): no suffix, e.g. AAPL, CRWD, GOOGL\n"
         "- London Stock Exchange: .L suffix, e.g. WISE.L\n"
@@ -92,7 +123,7 @@ def _resolve_ticker(company_name: str) -> str:
         "- Toronto Stock Exchange: .TO suffix or TSE:TICKER format, e.g. SHOP.TO\n"
         "- Other exchanges: use the correct Yahoo Finance suffix\n\n"
         "Reply with ONLY the ticker symbol. Nothing else.\n\n"
-        f"Search results:\n{snippets}"
+        f"{context_line}"
     )
 
     _msgs = [{"role": "user", "content": prompt}]
@@ -119,7 +150,10 @@ def _resolve_ticker(company_name: str) -> str:
 
 def _fmp(endpoint: str, params: dict) -> list | None:
     """Single FMP stable API call. Returns list or None on any error."""
-    params["apikey"] = os.environ["FMP_API_KEY"]
+    fmp_key = os.environ.get("FMP_API_KEY", "")
+    if not fmp_key:
+        return None
+    params["apikey"] = fmp_key
     resp = requests.get(f"{FMP_BASE}{endpoint}", params=params, timeout=15)
     if resp.status_code == 401:
         print("  FMP error: Unauthorized -- check FMP_API_KEY in .env")
@@ -231,8 +265,11 @@ def _safe_int(val) -> int | None:
 
 def _fetch_yfinance_data(ticker: str) -> dict | None:
     """Fetch profile + financials from yfinance for international tickers."""
-    t = yf.Ticker(ticker)
-    info = t.info
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+    except Exception:
+        return None
 
     if not info or not any(info.get(k) for k in ("currentPrice", "regularMarketPrice", "marketCap")):
         return None
@@ -327,11 +364,84 @@ def _revenue_cagr(revenues: list) -> float | None:
     return round((newest / oldest) ** (1 / n) - 1, 4)
 
 
+# -- Step 2c: Claude financial data (last-resort fallback) ---------------------
+
+_FINANCIALS_SYSTEM = (
+    "You are a financial data provider. Given a company name and ticker, output "
+    "their most recent publicly available financial data from your training knowledge. "
+    "Use approximate figures based on the most recent annual report you know about. "
+    "Reply ONLY in the exact JSON format requested. No explanation, no markdown."
+)
+
+_FINANCIALS_PROMPT = """\
+Company: {name} (ticker: {ticker})
+
+Provide the following financial data in this exact JSON format:
+{{
+  "name": "<full company name>",
+  "exchange": "<exchange name, e.g. Euronext Amsterdam>",
+  "sector": "<sector>",
+  "industry": "<industry>",
+  "market_cap": <integer in USD, e.g. 50000000000>,
+  "current_price": <float in primary currency>,
+  "pe_ratio": <float or null>,
+  "beta": <float or null>,
+  "revenues": [
+    {{"year": "<most recent year>", "revenue": <integer in USD>}},
+    {{"year": "<year-1>", "revenue": <integer in USD>}},
+    {{"year": "<year-2>", "revenue": <integer in USD>}}
+  ],
+  "free_cash_flow": <integer in USD or null>,
+  "operating_cash_flow": <integer in USD or null>,
+  "operating_income": <integer in USD or null>,
+  "roe": <float 0-1 or null>,
+  "insider_ownership_pct": <float 0-1 or null>
+}}"""
+
+
+def _fetch_claude_financials(company_name: str, ticker: str) -> dict | None:
+    """Ask Claude for approximate financial data when all live sources are unavailable."""
+    import json
+    from agents.llm_client import gemini_call
+    prompt = _FINANCIALS_PROMPT.format(name=company_name, ticker=ticker)
+    msgs = [
+        {"role": "system", "content": _FINANCIALS_SYSTEM},
+        {"role": "user",   "content": prompt},
+    ]
+    raw = gemini_call(msgs, max_tokens=600, temperature=0, stage="financial data")
+    if not raw:
+        return None
+    try:
+        start = raw.find("{")
+        end   = raw.rfind("}") + 1
+        data  = json.loads(raw[start:end])
+    except Exception:
+        return None
+    return {
+        "name":                 data.get("name", company_name),
+        "ticker":               ticker,
+        "exchange":             data.get("exchange"),
+        "sector":               data.get("sector"),
+        "industry":             data.get("industry"),
+        "market_cap":           data.get("market_cap"),
+        "current_price":        data.get("current_price"),
+        "pe_ratio":             data.get("pe_ratio"),
+        "beta":                 data.get("beta"),
+        "revenues":             data.get("revenues", []),
+        "free_cash_flow":       data.get("free_cash_flow"),
+        "operating_cash_flow":  data.get("operating_cash_flow"),
+        "operating_income":     data.get("operating_income"),
+        "roe":                  data.get("roe"),
+        "insider_ownership_pct": data.get("insider_ownership_pct"),
+        "data_source":          "Claude (training knowledge)",
+    }
+
+
 # -- Step 3: Qualitative analysis ----------------------------------------------
 
 _ANALYST_SYSTEM = (
-    "You are an equity research analyst. Based on the search results provided, "
-    "extract and summarise:\n"
+    "You are an equity research analyst. Based on available information (search results "
+    "or your training knowledge if no search results are provided), extract and summarise:\n"
     "1. A 2-3 sentence plain English description of what the company does\n"
     "2. Primary competitive moat (one of: switching costs, network effects, "
     "cost advantage, intangible assets, efficient scale)\n"
@@ -353,11 +463,11 @@ _ANALYST_SYSTEM = (
 
 
 def _tavily_content(query: str, max_results: int = 4) -> str:
-    """Return concatenated content snippets from a Tavily search."""
-    results = _tavily().search(query=query, max_results=max_results)
+    """Return concatenated content snippets from a web search (Tavily or DuckDuckGo)."""
+    results = _web_search(query, max_results=max_results)
     return "\n\n".join(
         f"[{r['title']}]\n{r['content']}"
-        for r in results.get("results", [])
+        for r in results
     )
 
 
@@ -580,11 +690,17 @@ def run(company_name: str) -> dict:
                 financial_data = _patch_fmp_gaps(financial_data, ticker)
 
     if not financial_data:
+        print("        All live sources failed -- falling back to Claude training knowledge")
+        financial_data = _fetch_claude_financials(company_name, ticker)
+        if financial_data:
+            financial_data["field_sources"] = {f: "Claude" for f in _PATCHABLE}
+
+    if not financial_data:
         print(f"\n  Could not retrieve financial data for '{ticker}' from any source.")
         sys.exit(1)
 
     # Step 3 -- qualitative analysis
-    print("  [3/3] Fetching qualitative analysis (Tavily + Groq)...")
+    print("  [3/3] Fetching qualitative analysis...")
     qualitative = _fetch_qualitative(company_name, ticker)
 
     profile = {**financial_data, **qualitative}

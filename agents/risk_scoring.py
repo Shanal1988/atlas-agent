@@ -215,7 +215,6 @@ def _score_risk_factors(context: str) -> str:
 
 def _get_summary(context: str, risk_lines: list[str], category: str,
                  alloc_label: str, conviction: str, position_pct: float) -> str:
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
     user_msg = (
         f"Company data:\n{context}\n\n"
         f"Risk factor assessments:\n" + "\n".join(risk_lines) + "\n\n"
@@ -224,6 +223,7 @@ def _get_summary(context: str, risk_lines: list[str], category: str,
         "Write the 4-6 sentence investment memo paragraph."
     )
     try:
+        client = Groq(api_key=os.environ["GROQ_API_KEY"])
         response = client.chat.completions.create(
             model=GROQ_MODEL,
             messages=[
