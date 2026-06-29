@@ -520,12 +520,33 @@ def run(company_name: str) -> dict:
     # This handles name collisions such as Wise plc (WISE.L) vs WISE ETF.
     _SUFFIX_FALLBACKS = [".L", ".AS", ".TO", ".PA", ".DE", ".AX",
                          ".HK", ".SW", ".MI", ".CO", ".ST", ".OL"]
+
+    def _name_matches(input_name: str, fetched_name: str | None) -> bool:
+        """True if at least one significant word from input_name appears in fetched_name."""
+        if not fetched_name:
+            return False
+        stopwords = {"the", "a", "an", "of", "and", "inc", "corp", "corporation",
+                     "ltd", "limited", "group", "holdings", "plc", "co", "company",
+                     "se", "sa", "ag", "nv", "bv", "oy", "ab"}
+        cn_words = {w.lower() for w in input_name.split() if w.lower() not in stopwords}
+        fn_words = fetched_name.lower()
+        return any(w in fn_words for w in cn_words)
+
     try:
         _info = yf.Ticker(ticker).info
         error = check_security_type(ticker, _info)
+
+        # Name-mismatch guard: bare ticker resolved to the wrong company
+        fetched_name = _info.get("longName") or _info.get("shortName", "")
+        name_ok = _name_matches(company_name, fetched_name)
+        if error is None and not name_ok and "." not in ticker:
+            print(f"        -> '{ticker}' resolved to '{fetched_name}' — name mismatch, trying exchange suffixes...")
+            error = "name_mismatch"  # trigger suffix fallback below
+
         if error and "." not in ticker:
-            # Bare ticker failed — try international suffixes
-            print(f"        -> {ticker} is not an equity; trying exchange suffixes...")
+            # Bare ticker failed (wrong security type or wrong company) — try international suffixes
+            label = "is not an equity" if error != "name_mismatch" else "name mismatch"
+            print(f"        -> {ticker} {label}; trying exchange suffixes...")
             recovered = False
             for suffix in _SUFFIX_FALLBACKS:
                 candidate = ticker + suffix
@@ -534,18 +555,23 @@ def run(company_name: str) -> dict:
                     if not _cinfo:
                         continue
                     cerror = check_security_type(candidate, _cinfo)
-                    if cerror is None and _cinfo.get("marketCap"):
+                    cname  = _cinfo.get("longName") or _cinfo.get("shortName", "")
+                    if cerror is None and _cinfo.get("marketCap") and _name_matches(company_name, cname):
                         ticker = candidate
                         _info  = _cinfo
                         error  = None
-                        print(f"        -> Resolved to {ticker}")
+                        print(f"        -> Resolved to {ticker} ({cname})")
                         recovered = True
                         break
                 except Exception:
                     continue
             if not recovered:
-                print(f"\n{error}")
-                sys.exit(1)
+                if error == "name_mismatch":
+                    print(f"        -> Could not find a better match; proceeding with {ticker}")
+                    error = None  # best we can do
+                else:
+                    print(f"\n{error}")
+                    sys.exit(1)
         elif error:
             print(f"\n{error}")
             sys.exit(1)
