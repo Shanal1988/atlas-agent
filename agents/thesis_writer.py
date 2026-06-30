@@ -157,7 +157,9 @@ def _iv_summary_line(valuation_result: dict | None) -> str:
 
 def _build_context(profile: dict, bmp_result: dict,
                    fisher_result: dict | None, selection_result: dict | None,
-                   risk_result: dict, valuation_result: dict | None = None) -> str:
+                   risk_result: dict, valuation_result: dict | None = None,
+                   industry_result: dict | None = None,
+                   similar_result: list | None = None) -> str:
     roe     = profile.get("roe")
     insider = profile.get("insider_ownership_pct")
     cagr    = profile.get("revenue_cagr")
@@ -191,6 +193,10 @@ def _build_context(profile: dict, bmp_result: dict,
         f"FCF Margin:        {fcf_margin_str}",
         f"ROE:               {round(roe * 100, 2)}%" if roe else "ROE:               N/A",
         f"Insider Ownership: {round(insider * 100, 2)}%" if insider else "Insider Ownership: N/A",
+        f"ROCE (avg):        {round(profile.get('roce_avg') * 100, 2)}%  Trend: {profile.get('roce_trend', 'N/A')}"
+            if profile.get("roce_avg") is not None else "ROCE:              N/A",
+        f"ROIC (avg):        {round(profile.get('roic_avg') * 100, 2)}%  Trend: {profile.get('roic_trend', 'N/A')}"
+            if profile.get("roic_avg") is not None else "ROIC:              N/A",
         f"Description:       {profile.get('description', 'N/A')}",
         f"Moat:              {profile.get('moat', 'N/A')}",
         f"Growth Drivers:    {'; '.join(profile.get('growth_drivers', []))}",
@@ -280,6 +286,35 @@ def _build_context(profile: dict, bmp_result: dict,
         ]
         for alert in reg_alerts:
             lines.append(f"ALERT: {alert}")
+
+    # Industry analysis context
+    if industry_result and industry_result.get("sections"):
+        lines += ["", "=== INDUSTRY ANALYSIS ==="]
+        for label, content in industry_result["sections"].items():
+            if content:
+                lines.append(f"{label.replace('_', ' ').title()}: {content}")
+        peers = industry_result.get("peers", [])
+        if peers:
+            lines.append("\nPeer Metrics:")
+            for pm in peers[:5]:
+                lines.append(
+                    f"  {pm.get('ticker', '?')}: MktCap {pm.get('market_cap', 'N/A')}, "
+                    f"P/E {pm.get('pe_ratio', 'N/A')}, "
+                    f"ROIC {pm.get('roic', 'N/A')}, "
+                    f"OpMgn {pm.get('operating_margin', 'N/A')}"
+                )
+
+    # Similar companies for investor exploration
+    if similar_result:
+        lines += ["", "=== SIMILAR COMPANIES (potential multibaggers for exploration) ==="]
+        for s in similar_result[:5]:
+            lines.append(
+                f"  {s.get('ticker', '?')} - {s.get('name', '?')}: "
+                f"MktCap {s.get('market_cap', 'N/A')}, "
+                f"RevGrowth {s.get('revenue_growth', 'N/A')}, "
+                f"ROIC {s.get('roic', 'N/A')}, "
+                f"Score {s.get('multibagger_score', 0)}/12"
+            )
 
     return "\n".join(lines)
 
@@ -435,7 +470,9 @@ def _format_valuation_section(valuation_result: dict | None) -> list[str]:
 def _format_thesis(profile: dict, bmp_result: dict,
                    fisher_result: dict | None, selection_result: dict | None,
                    risk_result: dict, sections: dict, today_str: str,
-                   valuation_result: dict | None = None) -> str:
+                   valuation_result: dict | None = None,
+                   industry_result: dict | None = None,
+                   similar_result: list | None = None) -> str:
     name    = profile.get("name", "N/A")
     ticker  = profile.get("ticker", "N/A")
     roe     = profile.get("roe")
@@ -505,6 +542,10 @@ def _format_thesis(profile: dict, bmp_result: dict,
             else "  Revenue CAGR:      N/A",
         f"  FCF Margin:        {fcf_margin_display}",
         f"  ROE:               {round(roe * 100, 2)}%" if roe else "  ROE:               N/A",
+        f"  ROCE (avg):        {round(profile.get('roce_avg') * 100, 2)}%  ({profile.get('roce_trend', 'N/A')})"
+            if profile.get("roce_avg") is not None else "  ROCE:              N/A",
+        f"  ROIC (avg):        {round(profile.get('roic_avg') * 100, 2)}%  ({profile.get('roic_trend', 'N/A')})"
+            if profile.get("roic_avg") is not None else "  ROIC:              N/A",
         f"  Insider Ownership: {round(insider * 100, 2)}%" if insider
             else "  Insider Ownership: N/A",
         f"  P/E Ratio:         {profile.get('pe_ratio', 'N/A')}",
@@ -523,9 +564,46 @@ def _format_thesis(profile: dict, bmp_result: dict,
         "  --- DECISION ---",
         f"  {sections['DECISION']}",
         f"  {sections['DECISION_RATIONALE']}",
-        "",
-        f"{'=' * W}",
     ]
+
+    # Industry analysis section
+    if industry_result and industry_result.get("sections"):
+        lines += [
+            "",
+            "  --- INDUSTRY CONTEXT ---",
+        ]
+        ind_sections = industry_result["sections"]
+        for label in ("INDUSTRY_OVERVIEW", "MARKET_STRUCTURE", "COMPETITIVE_POSITION"):
+            val = ind_sections.get(label, "")
+            if val:
+                display = label.replace("_", " ").title()
+                lines.append(f"  {display}: {val}")
+
+    # Similar companies section
+    if similar_result:
+        lines += [
+            "",
+            "  --- SIMILAR COMPANIES (Potential Multibaggers) ---",
+        ]
+        for i, s in enumerate(similar_result[:5], 1):
+            name = (s.get("name") or "")[:25]
+            mc = s.get("market_cap")
+            mc_str = _fmt_mcap(mc) if mc else "N/A"
+            rg = s.get("revenue_growth")
+            rg_str = f"{rg * 100:.1f}%" if rg is not None else "N/A"
+            roic = s.get("roic")
+            roic_str = f"{roic * 100:.1f}%" if roic is not None else "N/A"
+            pe = s.get("pe_ratio")
+            pe_str = f"{pe:.1f}" if pe is not None else "N/A"
+            score = s.get("multibagger_score", 0)
+            lines.append(
+                f"  {i}. {s.get('ticker', '?')} - {name}  |  "
+                f"MktCap: {mc_str}  RevGrowth: {rg_str}  "
+                f"ROIC: {roic_str}  P/E: {pe_str}  "
+                f"Score: {score}/12"
+            )
+
+    lines += ["", f"{'=' * W}"]
     return "\n".join(lines)
 
 
@@ -535,7 +613,9 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
           fisher_result: dict | None, selection_result: dict | None,
           risk_result: dict, sections: dict, formatted: str,
           judge_flags: dict | None = None,
-          valuation_result: dict | None = None) -> tuple[str, str]:
+          valuation_result: dict | None = None,
+          industry_result: dict | None = None,
+          similar_result: list | None = None) -> tuple[str, str]:
     Path("data/theses").mkdir(parents=True, exist_ok=True)
 
     safe_ticker = ticker.replace(".", "_")
@@ -563,6 +643,10 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             "operating_cash_flow":  profile.get("operating_cash_flow"),
             "operating_income":     profile.get("operating_income"),
             "roe":                  profile.get("roe"),
+            "roce_avg":             profile.get("roce_avg"),
+            "roic_avg":             profile.get("roic_avg"),
+            "roce_trend":           profile.get("roce_trend"),
+            "roic_trend":           profile.get("roic_trend"),
             "insider_ownership_pct": profile.get("insider_ownership_pct"),
             "description":          profile.get("description"),
             "moat":                 profile.get("moat"),
@@ -601,6 +685,8 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
         },
         "judge_flags": judge_flags or {},
         "valuation": valuation_result if valuation_result and valuation_result.get("available") else None,
+        "industry_analysis": industry_result if industry_result else None,
+        "similar_companies": similar_result if similar_result else None,
         "thesis": {
             "executive_summary":   sections["EXECUTIVE_SUMMARY"],
             "bull_case":           [sections["BULL_1"], sections["BULL_2"], sections["BULL_3"]],
@@ -627,7 +713,9 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
 
 def run(profile: dict, bmp_result: dict,
         fisher_result: dict | None, selection_result: dict | None,
-        risk_result: dict, valuation_result: dict | None = None) -> dict:
+        risk_result: dict, valuation_result: dict | None = None,
+        industry_result: dict | None = None,
+        similar_result: list | None = None) -> dict:
     """
     Write and save the investment thesis.
     Always runs regardless of prior stage verdicts.
@@ -640,7 +728,7 @@ def run(profile: dict, bmp_result: dict,
 
     context  = _build_context(
         profile, bmp_result, fisher_result, selection_result, risk_result,
-        valuation_result,
+        valuation_result, industry_result, similar_result,
     )
     raw      = _write_thesis_sections(context)
     sections = _parse_sections(raw)
@@ -648,6 +736,7 @@ def run(profile: dict, bmp_result: dict,
     formatted = _format_thesis(
         profile, bmp_result, fisher_result, selection_result,
         risk_result, sections, today_str, valuation_result,
+        industry_result, similar_result,
     )
 
     print(formatted)
@@ -682,7 +771,7 @@ def run(profile: dict, bmp_result: dict,
     json_path, txt_path = _save(
         ticker, today_str, profile, bmp_result, fisher_result,
         selection_result, risk_result, sections, formatted, judge_flags,
-        valuation_result,
+        valuation_result, industry_result, similar_result,
     )
 
     print(f"  [Thesis] Saved: {json_path}")

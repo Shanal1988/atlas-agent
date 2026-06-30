@@ -327,6 +327,211 @@ def _revenue_cagr(revenues: list) -> float | None:
     return round((newest / oldest) ** (1 / n) - 1, 4)
 
 
+# -- ROCE / ROIC computation --------------------------------------------------
+
+def _compute_roce_roic(ticker: str, is_us: bool) -> dict:
+    """
+    Compute 3-5 year ROCE and ROIC from balance sheet and income data.
+
+    ROCE  = EBIT / Capital Employed   (Capital Employed = Total Assets - Current Liabilities)
+    ROIC  = NOPAT / Invested Capital  (Invested Capital = Equity + Total Debt - Cash)
+
+    Returns dict with roce_history, roic_history, roce_avg, roic_avg, roce_trend, roic_trend.
+    """
+    result = {
+        "roce_history": [],
+        "roic_history": [],
+        "roce_avg": None,
+        "roic_avg": None,
+        "roce_trend": None,
+        "roic_trend": None,
+    }
+
+    if is_us:
+        result = _roce_roic_fmp(ticker, result)
+    # Fallback to yfinance if FMP returned no history (e.g. newly listed ticker)
+    if not result["roce_history"]:
+        result = _roce_roic_yfinance(ticker, result)
+
+    # Compute averages and trends
+    roce_vals = [r["roce"] for r in result["roce_history"] if r["roce"] is not None]
+    roic_vals = [r["roic"] for r in result["roic_history"] if r["roic"] is not None]
+
+    if roce_vals:
+        result["roce_avg"] = round(sum(roce_vals) / len(roce_vals), 4)
+    if roic_vals:
+        result["roic_avg"] = round(sum(roic_vals) / len(roic_vals), 4)
+
+    if len(roce_vals) >= 3:
+        result["roce_trend"] = _trend(roce_vals[0], roce_vals[-1])
+    if len(roic_vals) >= 3:
+        result["roic_trend"] = _trend(roic_vals[0], roic_vals[-1])
+
+    return result
+
+
+def _trend(newest: float, oldest: float) -> str:
+    """Classify trend as improving, stable, or declining (2pp tolerance)."""
+    diff = newest - oldest
+    if diff > 0.02:
+        return "improving"
+    if diff < -0.02:
+        return "declining"
+    return "stable"
+
+
+def _safe_divide(numerator, denominator) -> float | None:
+    """Safe division, returns None if denominator is zero/None/negative or result is unreasonable."""
+    if not numerator or not denominator or denominator <= 0:
+        return None
+    val = numerator / denominator
+    # Guard against absurd ratios
+    if val < -1.0 or val > 2.0:
+        return None
+    return round(val, 4)
+
+
+def _roce_roic_fmp(ticker: str, result: dict) -> dict:
+    """Compute ROCE/ROIC from FMP balance sheet + income statement (5 years)."""
+    income = _fmp("/income-statement", {"symbol": ticker, "limit": 5}) or []
+    bs = _fmp("/balance-sheet-statement", {"symbol": ticker, "limit": 5}) or []
+
+    if not income or not bs:
+        return result
+
+    # Index balance sheet by fiscal year for joining
+    bs_by_year = {}
+    for row in bs:
+        fy = row.get("fiscalYear") or row.get("calendarYear")
+        if fy:
+            bs_by_year[str(fy)] = row
+
+    for inc_row in income:
+        fy = str(inc_row.get("fiscalYear") or inc_row.get("calendarYear") or "?")
+        bs_row = bs_by_year.get(fy)
+        if not bs_row:
+            continue
+
+        ebit = inc_row.get("operatingIncome")
+        total_assets = bs_row.get("totalAssets")
+        current_liabilities = bs_row.get("totalCurrentLiabilities")
+        equity = bs_row.get("totalStockholdersEquity")
+        total_debt = bs_row.get("totalDebt")
+        cash = bs_row.get("cashAndCashEquivalents") or bs_row.get("cashAndShortTermInvestments")
+
+        # Tax rate for NOPAT
+        tax_expense = inc_row.get("incomeTaxExpense")
+        pretax = inc_row.get("incomeBeforeTax")
+        tax_rate = 0.25  # default
+        if tax_expense is not None and pretax and pretax > 0:
+            tax_rate = max(0.10, min(0.40, abs(tax_expense) / pretax))
+
+        # ROCE = EBIT / (Total Assets - Current Liabilities)
+        capital_employed = None
+        if total_assets and current_liabilities is not None:
+            capital_employed = total_assets - current_liabilities
+        roce = _safe_divide(ebit, capital_employed)
+        result["roce_history"].append({"year": fy, "roce": roce})
+
+        # ROIC = NOPAT / Invested Capital
+        invested_capital = None
+        if equity is not None and total_debt is not None:
+            invested_capital = equity + total_debt - (cash or 0)
+        nopat = ebit * (1 - tax_rate) if ebit else None
+        roic = _safe_divide(nopat, invested_capital)
+        result["roic_history"].append({"year": fy, "roic": roic})
+
+    return result
+
+
+def _roce_roic_yfinance(ticker: str, result: dict) -> dict:
+    """Compute ROCE/ROIC from yfinance balance sheet + financials."""
+    try:
+        t = yf.Ticker(ticker)
+        fin = t.financials
+        bs = t.balance_sheet
+    except Exception:
+        return result
+
+    if fin is None or fin.empty or bs is None or bs.empty:
+        return result
+
+    # Get EBIT row
+    ebit_key = None
+    for k in ("Operating Income", "EBIT"):
+        if k in fin.index:
+            ebit_key = k
+            break
+    if not ebit_key:
+        return result
+
+    # Tax rows
+    tax_key, pretax_key = None, None
+    for k in ("Tax Provision", "Income Tax Expense"):
+        if k in fin.index:
+            tax_key = k
+            break
+    for k in ("Pretax Income", "Income Before Tax"):
+        if k in fin.index:
+            pretax_key = k
+            break
+
+    for col in list(fin.columns)[:5]:
+        year = str(col.year)
+        ebit = _safe_float_val(fin, ebit_key, col)
+        if ebit is None:
+            continue
+
+        total_assets = _safe_float_val(bs, "Total Assets", col)
+        current_liabilities = _safe_float_val(bs, "Current Liabilities", col)
+        equity = _safe_float_val(bs, "Stockholders Equity", col)
+        if equity is None:
+            equity = _safe_float_val(bs, "Total Stockholders Equity", col)
+        total_debt = _safe_float_val(bs, "Total Debt", col)
+        if total_debt is None:
+            total_debt = _safe_float_val(bs, "Long Term Debt", col)
+        cash = _safe_float_val(bs, "Cash And Cash Equivalents", col)
+        if cash is None:
+            cash = _safe_float_val(bs, "Cash Cash Equivalents And Short Term Investments", col)
+
+        # Tax rate
+        tax_rate = 0.25
+        tax_val = _safe_float_val(fin, tax_key, col) if tax_key else None
+        pretax_val = _safe_float_val(fin, pretax_key, col) if pretax_key else None
+        if tax_val is not None and pretax_val and pretax_val > 0:
+            tax_rate = max(0.10, min(0.40, abs(tax_val) / pretax_val))
+
+        # ROCE
+        capital_employed = None
+        if total_assets and current_liabilities is not None:
+            capital_employed = total_assets - current_liabilities
+        roce = _safe_divide(ebit, capital_employed)
+        result["roce_history"].append({"year": year, "roce": roce})
+
+        # ROIC
+        invested_capital = None
+        if equity is not None and total_debt is not None:
+            invested_capital = equity + (total_debt or 0) - (cash or 0)
+        nopat = ebit * (1 - tax_rate)
+        roic = _safe_divide(nopat, invested_capital)
+        result["roic_history"].append({"year": year, "roic": roic})
+
+    return result
+
+
+def _safe_float_val(df, key: str, col) -> float | None:
+    """Safely extract a float from a pandas DataFrame cell."""
+    if key is None or key not in df.index:
+        return None
+    try:
+        val = df.loc[key][col]
+        if val is None or pd.isna(val):
+            return None
+        return float(val)
+    except Exception:
+        return None
+
+
 # -- Step 3: Qualitative analysis ----------------------------------------------
 
 _ANALYST_SYSTEM = (
@@ -476,6 +681,16 @@ def _print_profile(p: dict) -> None:
     print(f"  Op. Cash Flow : {_fmt_num(p.get('operating_cash_flow'))}{tag('operating_cash_flow')}")
     print(f"  Op. Income    : {_fmt_num(p.get('operating_income'))}{tag('operating_income')}")
     print(f"  ROE           : {_fmt_pct(p.get('roe'))}{tag('roe')}")
+    print(f"  ROCE (avg)    : {_fmt_pct(p.get('roce_avg'))}  Trend: {p.get('roce_trend') or 'N/A'}")
+    print(f"  ROIC (avg)    : {_fmt_pct(p.get('roic_avg'))}  Trend: {p.get('roic_trend') or 'N/A'}")
+    roce_hist = p.get("roce_history", [])
+    if roce_hist:
+        roce_str = "  |  ".join(f"{r['year']}: {_fmt_pct(r.get('roce'))}" for r in roce_hist[:5])
+        print(f"  ROCE History  : {roce_str}")
+    roic_hist = p.get("roic_history", [])
+    if roic_hist:
+        roic_str = "  |  ".join(f"{r['year']}: {_fmt_pct(r.get('roic'))}" for r in roic_hist[:5])
+        print(f"  ROIC History  : {roic_str}")
     insider = p.get("insider_ownership_pct")
     print(f"  Insider Own.  : {_fmt_pct(insider) if insider is not None else 'N/A'}{tag('insider_ownership_pct')}")
 
@@ -616,6 +831,17 @@ def run(company_name: str) -> dict:
     profile = {**financial_data, **qualitative}
     # Compute and store CAGR so downstream stages (e.g. BMP gate) can read it
     profile["revenue_cagr"] = _revenue_cagr(profile.get("revenues") or [])
+
+    # Compute ROCE / ROIC (3-5 year history)
+    print("        Computing ROCE / ROIC...")
+    roce_roic = _compute_roce_roic(ticker, _is_us_listed(ticker))
+    profile["roce_history"] = roce_roic.get("roce_history", [])
+    profile["roic_history"] = roce_roic.get("roic_history", [])
+    profile["roce_avg"]     = roce_roic.get("roce_avg")
+    profile["roic_avg"]     = roce_roic.get("roic_avg")
+    profile["roce_trend"]   = roce_roic.get("roce_trend")
+    profile["roic_trend"]   = roce_roic.get("roic_trend")
+
     _print_profile(profile)
 
     # Auto-index any documents for this ticker (RAG — no-op if libs not installed)

@@ -251,6 +251,14 @@ def _profile_context(profile: dict) -> str:
         f"Operating Income:  {op_income if op_income is not None else 'N/A'}",
         f"Op. Cash Flow:     {op_cf if op_cf is not None else 'N/A'}",
         f"ROE:               {roe_str}",
+        *(
+            [f"ROCE (avg):        {round(profile.get('roce_avg') * 100, 2)}%  Trend: {profile.get('roce_trend', 'N/A')}"]
+            if profile.get("roce_avg") is not None else ["ROCE:              N/A"]
+        ),
+        *(
+            [f"ROIC (avg):        {round(profile.get('roic_avg') * 100, 2)}%  Trend: {profile.get('roic_trend', 'N/A')}"]
+            if profile.get("roic_avg") is not None else ["ROIC:              N/A"]
+        ),
         f"Insider Ownership: {insider_str}",
         f"Competitive Moat:  {profile.get('moat', 'N/A')}",
         f"Description:       {profile.get('description', 'N/A')}",

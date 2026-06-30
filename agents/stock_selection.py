@@ -303,6 +303,10 @@ def _build_context(profile: dict, extra: dict) -> str:
         f"Capex % of Revenue:  {capex_pct}%" if capex_pct is not None else "Capex % of Revenue:  N/A",
         f"Buffett Ratio:       {buffett_ratio} (delta market cap / cumulative retained earnings over ~5yr)"
             if buffett_ratio is not None else "Buffett Ratio:       N/A (insufficient history)",
+        f"ROCE (avg):          {round(profile.get('roce_avg') * 100, 2)}%  Trend: {profile.get('roce_trend', 'N/A')}"
+            if profile.get("roce_avg") is not None else "ROCE:                N/A",
+        f"ROIC (avg):          {round(profile.get('roic_avg') * 100, 2)}%  Trend: {profile.get('roic_trend', 'N/A')}"
+            if profile.get("roic_avg") is not None else "ROIC:                N/A",
     ]
 
     if is_fin:
