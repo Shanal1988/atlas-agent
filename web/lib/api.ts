@@ -49,3 +49,13 @@ export async function compareAnalyses(ids: string[]): Promise<Analysis[]> {
 export function exportTxtUrl(id: string): string {
   return `${API}/api/export/${id}/txt`;
 }
+
+export async function askFollowUp(analysisId: string, message: string): Promise<{ answer: string }> {
+  const res = await fetch(`${API}/api/chat/${analysisId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

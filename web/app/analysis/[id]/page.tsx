@@ -15,6 +15,7 @@ import { ROCEROICChart } from "@/components/ROCEROICChart";
 import { FisherRadar } from "@/components/FisherRadar";
 import { PeerTable } from "@/components/PeerTable";
 import { SimilarCompanies } from "@/components/SimilarCompanies";
+import { FollowUpChat } from "@/components/FollowUpChat";
 import { ThesisDisplay } from "@/components/ThesisDisplay";
 import { JudgeFlags } from "@/components/JudgeFlags";
 import { Download } from "lucide-react";
@@ -136,6 +137,7 @@ export default function AnalysisPage() {
 
         {industry_analysis && <PeerTable industry={industry_analysis} />}
         {similar_companies?.length ? <SimilarCompanies companies={similar_companies} /> : null}
+        <FollowUpChat analysisId={id} company={data.company} ticker={data.ticker} />
       </div>
     </div>
   );

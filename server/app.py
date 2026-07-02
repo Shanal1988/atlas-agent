@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from server.router_analysis import router as analysis_router
 from server.router_history import router as history_router
 from server.router_compare import router as compare_router
+from server.router_chat import router as chat_router
 
 THESES_DIR = Path("data/theses")
 
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(analysis_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(compare_router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
 
 
 @app.get("/")
