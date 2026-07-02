@@ -261,6 +261,7 @@ export interface AnalysisSummary {
 
 // SSE event types
 export type ProgressEvent =
+  | { type: "snapshot"; status: string; current_stage?: string; completed_stages?: string[]; logs?: any[]; ticker?: string; result_json_path?: string; error?: string }
   | { type: "stage_start"; stage: string; timestamp: number }
   | { type: "stage_complete"; stage: string; timestamp: number }
   | { type: "log"; line: string; stage: string; timestamp: number }
