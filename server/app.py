@@ -6,6 +6,7 @@ Start with:
 """
 
 import json
+import os
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +18,19 @@ from server.router_compare import router as compare_router
 
 THESES_DIR = Path("data/theses")
 
+# Ensure data directories exist (important on Railway where filesystem starts empty)
+Path("data/theses").mkdir(parents=True, exist_ok=True)
+Path("data/uploads").mkdir(parents=True, exist_ok=True)
+
 app = FastAPI(title="Atlas Agent API", version="1.0.0")
+
+_default_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+_extra = os.environ.get("CORS_ORIGINS", "")
+_allowed_origins = _default_origins + [o.strip() for o in _extra.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
