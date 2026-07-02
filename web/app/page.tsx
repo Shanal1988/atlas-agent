@@ -8,6 +8,7 @@ import useSWR from "swr";
 import { AnalysisSummary } from "@/lib/types";
 import { fmtNum, fmtDate } from "@/lib/formatters";
 import Link from "next/link";
+import { useAnalysisContext } from "@/contexts/AnalysisContext";
 
 const DECISION_STYLE = {
   INVEST: "bg-emerald-900/60 text-emerald-300 border-emerald-700",
@@ -17,6 +18,7 @@ const DECISION_STYLE = {
 
 export default function HomePage() {
   const router = useRouter();
+  const { setActiveJob } = useAnalysisContext();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +34,7 @@ export default function HomePage() {
     setError(null);
     try {
       const { job_id } = await startAnalysis(query.trim());
+      setActiveJob({ jobId: job_id, company: query.trim() });
       router.push(`/running/${job_id}`);
     } catch (err: any) {
       setError(err.message ?? "Failed to start analysis");

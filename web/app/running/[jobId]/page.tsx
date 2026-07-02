@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useParams } from "next/navigation";
 import { useAnalysisProgress } from "@/hooks/useAnalysisProgress";
+import { useAnalysisContext } from "@/contexts/AnalysisContext";
 import { ProgressTracker } from "@/components/ProgressTracker";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
@@ -23,6 +24,7 @@ export default function RunningPage() {
   const params = useParams();
   const jobId = params.jobId as string;
   const router = useRouter();
+  const { setActiveJob } = useAnalysisContext();
 
   const { logs, currentStage, completedStages, isDone, isError, error, resultPath, ticker } =
     useAnalysisProgress(jobId);
@@ -37,15 +39,21 @@ export default function RunningPage() {
     }
   }, [logs]);
 
-  // Auto-redirect on completion
+  // Clear nav indicator and redirect on completion
   useEffect(() => {
     if (!isDone || !resultPath) return;
+    setActiveJob(null);
     // Extract analysis ID from path: data/theses/NVDA_2026-06-30.json
     const fname = resultPath.replace(/\\/g, "/").split("/").pop()?.replace(".json", "");
     if (fname) {
       setTimeout(() => router.push(`/analysis/${fname}`), 1500);
     }
-  }, [isDone, resultPath, router]);
+  }, [isDone, resultPath, router, setActiveJob]);
+
+  // Clear nav indicator on error
+  useEffect(() => {
+    if (isError) setActiveJob(null);
+  }, [isError, setActiveJob]);
 
   const pct = Math.round((completedStages.length / DEFAULT_STAGES.length) * 100);
 
