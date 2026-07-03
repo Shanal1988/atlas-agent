@@ -28,6 +28,28 @@ async def stream_progress(job_id: str):
         raise HTTPException(404, "Job not found")
 
     async def event_generator():
+        # Always send a snapshot first so reconnecting clients restore their state
+        snapshot = {
+            "type": "snapshot",
+            "status": job.status,
+            "current_stage": job.current_stage,
+            "completed_stages": list(job.completed_stages),
+            "logs": list(job.stdout_log),
+            "ticker": job.ticker,
+            "result_json_path": job.result_json_path,
+            "error": job.error,
+        }
+        yield f"data: {json.dumps(snapshot)}\n\n"
+
+        # If job already finished, send terminal event and stop
+        if job.status == "completed":
+            payload = {"type": "done", "json_path": job.result_json_path, "ticker": job.ticker}
+            yield f"data: {json.dumps(payload)}\n\n"
+            return
+        if job.status == "failed":
+            yield f"data: {json.dumps({'type': 'error', 'error': job.error})}\n\n"
+            return
+
         loop = asyncio.get_event_loop()
         while True:
             try:

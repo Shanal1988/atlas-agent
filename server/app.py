@@ -8,7 +8,7 @@ Start with:
 import json
 import os
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -16,6 +16,7 @@ from server.router_analysis import router as analysis_router
 from server.router_history import router as history_router
 from server.router_compare import router as compare_router
 from server.router_chat import router as chat_router
+from server.auth import get_current_user
 
 THESES_DIR = Path("data/theses")
 
@@ -37,10 +38,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(analysis_router, prefix="/api")
-app.include_router(history_router, prefix="/api")
-app.include_router(compare_router, prefix="/api")
-app.include_router(chat_router, prefix="/api")
+app.include_router(analysis_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(history_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(compare_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(chat_router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 
 @app.get("/")
@@ -49,7 +50,7 @@ def root():
 
 
 @app.get("/api/export/{analysis_id}/txt")
-def export_txt(analysis_id: str):
+def export_txt(analysis_id: str, user: dict = Depends(get_current_user)):
     """Download the formatted thesis as plain text."""
     path = THESES_DIR / f"{analysis_id}.txt"
     if not path.exists():

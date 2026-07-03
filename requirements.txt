@@ -1,5 +1,6 @@
 # Server
 fastapi
+PyJWT
 uvicorn[standard]
 python-multipart
 
