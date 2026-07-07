@@ -14,6 +14,7 @@ def _validate_token(raw: str) -> dict:
             SECRET,
             algorithms=["HS256"],
             options={"verify_aud": False},
+            leeway=30,  # tolerate up to 30s clock skew
         )
         return {
             "id": payload.get("sub"),
