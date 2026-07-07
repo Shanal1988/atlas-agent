@@ -1,13 +1,23 @@
-import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/auth"
+import { NextResponse } from "next/server"
+import { SignJWT } from "jose"
 
-// Auth.js v5 stores the session JWT in this cookie
-const COOKIE_NAME =
-  process.env.NODE_ENV === "production"
-    ? "__Secure-authjs.session-token"
-    : "authjs.session-token"
+export async function GET() {
+  const session = await auth()
+  if (!session?.user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+  }
 
-export async function GET(req: NextRequest) {
-  const rawJwt = req.cookies.get(COOKIE_NAME)?.value
-  if (!rawJwt) return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
-  return NextResponse.json({ token: rawJwt })
+  const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET)
+  const token = await new SignJWT({
+    sub: session.user.id ?? session.user.email,
+    email: session.user.email,
+    name: session.user.name,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(secret)
+
+  return NextResponse.json({ token })
 }
