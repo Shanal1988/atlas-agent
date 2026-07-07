@@ -5,7 +5,12 @@ const allowedEmails = process.env.ALLOWED_EMAILS?.split(",").map(e => e.trim()) 
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
-  providers: [Google],
+  providers: [
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
+  ],
   callbacks: {
     signIn({ user }) {
       if (allowedEmails.length === 0) return true // open if no allowlist set
