@@ -5,7 +5,6 @@ Start with:
   uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
 """
 
-import json
 import os
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Depends
@@ -47,6 +46,7 @@ app.include_router(chat_router, prefix="/api", dependencies=[Depends(get_current
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Atlas Agent API"}
+
 
 
 @app.get("/api/export/{analysis_id}/txt")

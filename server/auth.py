@@ -1,9 +1,7 @@
 import os
 import jwt
-from fastapi import HTTPException, Query, Request, Security
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import HTTPException, Request
 
-bearer = HTTPBearer(auto_error=False)
 SECRET = os.environ.get("NEXTAUTH_SECRET", "")
 
 
@@ -28,13 +26,12 @@ def _validate_token(raw: str) -> dict:
         raise HTTPException(401, "Invalid token")
 
 
-def get_current_user(
-    request: Request,
-    creds: HTTPAuthorizationCredentials | None = Security(bearer),
-    token: str | None = Query(None),
-) -> dict:
+def get_current_user(request: Request) -> dict:
     """Validates JWT from Authorization header or ?token= query param (for SSE)."""
-    raw = creds.credentials if creds else token
-    if not raw:
-        raise HTTPException(401, "Not authenticated")
-    return _validate_token(raw)
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return _validate_token(auth[7:])
+    token = request.query_params.get("token")
+    if token:
+        return _validate_token(token)
+    raise HTTPException(401, "Not authenticated")
