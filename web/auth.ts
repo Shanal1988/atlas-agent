@@ -4,6 +4,7 @@ import Google from "next-auth/providers/google"
 const allowedEmails = process.env.ALLOWED_EMAILS?.split(",").map(e => e.trim()) ?? []
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   providers: [Google],
   callbacks: {
     signIn({ user }) {
