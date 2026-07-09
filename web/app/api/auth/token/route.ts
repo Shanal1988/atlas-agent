@@ -10,9 +10,9 @@ export async function GET() {
 
   const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET)
   const token = await new SignJWT({
-    sub: session.user.id ?? session.user.email,
-    email: session.user.email,
-    name: session.user.name,
+    sub: session.user.id ?? session.user.email ?? undefined,
+    email: session.user.email ?? undefined,
+    name: session.user.name ?? undefined,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
