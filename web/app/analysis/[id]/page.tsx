@@ -2,8 +2,8 @@
 
 import { useParams } from "next/navigation";
 import useSWR from "swr";
-import { getAnalysis, exportTxtUrl } from "@/lib/api";
-import { Analysis } from "@/lib/types";
+import { getAnalysis, getOverrides, exportTxtUrl } from "@/lib/api";
+import { Analysis, AnalysisOverrides } from "@/lib/types";
 import { DecisionBanner } from "@/components/DecisionBanner";
 import { CompanyProfileCard } from "@/components/CompanyProfileCard";
 import { ScoreGauge } from "@/components/ScoreGauge";
@@ -18,15 +18,29 @@ import { SimilarCompanies } from "@/components/SimilarCompanies";
 import { FollowUpChat } from "@/components/FollowUpChat";
 import { ThesisDisplay } from "@/components/ThesisDisplay";
 import { JudgeFlags } from "@/components/JudgeFlags";
+import { BMPScoreTable } from "@/components/BMPScoreTable";
+import { FisherScoreTable } from "@/components/FisherScoreTable";
+import { FinancialStatementsPanel } from "@/components/FinancialStatements";
 import { Download } from "lucide-react";
 import { fmtDate } from "@/lib/formatters";
 
 export default function AnalysisPage() {
   const { id } = useParams<{ id: string }>();
+
   const { data, error, isLoading } = useSWR<Analysis>(
     id ? `analysis/${id}` : null,
     () => getAnalysis(id)
   );
+
+  const { data: overrides = {}, mutate: mutateOverrides } = useSWR<AnalysisOverrides>(
+    id ? `overrides/${id}` : null,
+    () => getOverrides(id),
+    { fallbackData: {} }
+  );
+
+  function handleOverridesChange(updated: AnalysisOverrides) {
+    mutateOverrides(updated, false);
+  }
 
   if (isLoading) {
     return (
@@ -45,6 +59,14 @@ export default function AnalysisPage() {
   }
 
   const { profile, scores, thesis, valuation, industry_analysis, similar_companies, judge_flags } = data;
+
+  // Merge overrides: use override scores if present, else original
+  const bmp = overrides.bmp
+    ? { ...scores.bmp, score: overrides.bmp.score, verdict: overrides.bmp.verdict, answers: overrides.bmp.answers as any }
+    : scores.bmp;
+  const fisher = overrides.fisher
+    ? { ...scores.fisher, total: overrides.fisher.total, rating: overrides.fisher.rating, points: overrides.fisher.points as any }
+    : scores.fisher;
 
   return (
     <div>
@@ -97,15 +119,15 @@ export default function AnalysisPage() {
             <div className="flex flex-wrap justify-around gap-4">
               <ScoreGauge
                 label="BMP"
-                score={scores.bmp.score}
+                score={bmp.score}
                 max={5}
-                verdict={scores.bmp.verdict}
+                verdict={bmp.verdict}
               />
               <ScoreGauge
                 label="Fisher"
-                score={scores.fisher.total}
+                score={fisher.total}
                 max={15}
-                verdict={scores.fisher.rating.split(" — ")[0]}
+                verdict={fisher.rating.split(" — ")[0]}
               />
               <ScoreGauge
                 label="Selection"
@@ -122,7 +144,7 @@ export default function AnalysisPage() {
         </div>
       </div>
 
-      {/* Full-width charts */}
+      {/* Full-width sections */}
       <div className="space-y-6">
         {valuation?.available && <ValuationChart valuation={valuation} />}
 
@@ -133,11 +155,36 @@ export default function AnalysisPage() {
           <ROCEROICChart profile={profile} />
         </div>
 
-        <FisherRadar fisher={scores.fisher} />
+        <FisherRadar fisher={fisher} />
+
+        {/* Editable score tables */}
+        <BMPScoreTable
+          analysisId={id}
+          bmp={scores.bmp}
+          overrides={overrides}
+          onOverridesChange={handleOverridesChange}
+        />
+
+        <FisherScoreTable
+          analysisId={id}
+          fisher={scores.fisher}
+          overrides={overrides}
+          onOverridesChange={handleOverridesChange}
+        />
+
+        {/* Financial Statements */}
+        <FinancialStatementsPanel analysisId={id} />
 
         {industry_analysis && <PeerTable industry={industry_analysis} />}
         {similar_companies?.length ? <SimilarCompanies companies={similar_companies} /> : null}
-        <FollowUpChat analysisId={id} company={data.company} ticker={data.ticker} />
+
+        <FollowUpChat
+          analysisId={id}
+          company={data.company}
+          ticker={data.ticker}
+          overrides={overrides}
+          onOverridesChange={handleOverridesChange}
+        />
       </div>
     </div>
   );

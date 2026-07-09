@@ -17,3 +17,7 @@ openai
 chromadb
 sentence-transformers
 pypdf
+
+# Financial parser extras
+openpyxl
+beautifulsoup4

@@ -259,6 +259,73 @@ export interface AnalysisSummary {
   moat: string | null;
 }
 
+// ── Financial Statements ──────────────────────────────────────────────────────
+
+export interface FinancialStatements {
+  analysis_id: string;
+  ticker: string;
+  company: string;
+  last_modified: string;
+  years: string[];
+  income_statement: Record<string, Record<string, number | null>>;
+  balance_sheet: Record<string, Record<string, number | null>>;
+  cash_flow: Record<string, Record<string, number | null>>;
+  uploads: { filename: string; uploaded_at: string; source: string }[];
+}
+
+// ── Overrides ─────────────────────────────────────────────────────────────────
+
+export interface BMPAnswerOverride {
+  label: string;
+  rating: "YES" | "PARTIAL" | "NO";
+  reasoning: string;
+  user_note?: string;
+}
+
+export interface FisherPointOverride {
+  key: string;
+  label: string;
+  score: number;
+  reasoning: string;
+  user_note?: string;
+}
+
+export interface AnalysisOverrides {
+  analysis_id?: string;
+  last_modified?: string;
+  bmp?: {
+    answers: BMPAnswerOverride[];
+    score: number;
+    verdict: string;
+  };
+  fisher?: {
+    points: FisherPointOverride[];
+    total: number;
+    rating: string;
+  };
+  thesis?: Partial<ThesisSections>;
+}
+
+// ── Chat enhancements ─────────────────────────────────────────────────────────
+
+export interface ChatSource {
+  title: string;
+  url: string;
+}
+
+export interface ProposedUpdate {
+  field: string;
+  old_value?: string;
+  new_value: string;
+  reason: string;
+}
+
+export interface ChatResponseData {
+  answer: string;
+  sources?: ChatSource[];
+  proposed_updates?: ProposedUpdate[];
+}
+
 // SSE event types
 export type ProgressEvent =
   | { type: "snapshot"; status: string; current_stage?: string; completed_stages?: string[]; logs?: any[]; ticker?: string; result_json_path?: string; error?: string }

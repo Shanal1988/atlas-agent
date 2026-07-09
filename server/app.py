@@ -15,6 +15,8 @@ from server.router_analysis import router as analysis_router
 from server.router_history import router as history_router
 from server.router_compare import router as compare_router
 from server.router_chat import router as chat_router
+from server.router_financials import router as financials_router
+from server.router_overrides import router as overrides_router
 from server.auth import get_current_user
 
 THESES_DIR = Path("data/theses")
@@ -22,6 +24,8 @@ THESES_DIR = Path("data/theses")
 # Ensure data directories exist (important on Railway where filesystem starts empty)
 Path("data/theses").mkdir(parents=True, exist_ok=True)
 Path("data/uploads").mkdir(parents=True, exist_ok=True)
+Path("data/financials").mkdir(parents=True, exist_ok=True)
+Path("data/overrides").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Atlas Agent API", version="1.0.0")
 
@@ -41,6 +45,8 @@ app.include_router(analysis_router, prefix="/api", dependencies=[Depends(get_cur
 app.include_router(history_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(compare_router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(chat_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(financials_router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(overrides_router, prefix="/api", dependencies=[Depends(get_current_user)])
 
 
 @app.get("/")

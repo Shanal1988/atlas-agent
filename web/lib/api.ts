@@ -92,11 +92,84 @@ export function exportTxtUrl(id: string): string {
   return `${API}/api/export/${id}/txt`;
 }
 
-export async function askFollowUp(analysisId: string, message: string): Promise<{ answer: string }> {
+export async function askFollowUp(analysisId: string, message: string) {
   const res = await fetch(`${API}/api/chat/${analysisId}`, {
     method: "POST",
     headers: await authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ── Financial Statements ──────────────────────────────────────────────────────
+
+export async function getFinancials(analysisId: string) {
+  const res = await fetch(`${API}/api/financials/${analysisId}`, {
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function saveFinancials(analysisId: string, data: object) {
+  const res = await fetch(`${API}/api/financials/${analysisId}`, {
+    method: "PUT",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function uploadFinancialFile(analysisId: string, file: File) {
+  const form = new FormData();
+  form.append("file", file);
+  const token = await getAuthToken();
+  const res = await fetch(`${API}/api/financials/${analysisId}/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function importFromUrl(analysisId: string, url: string) {
+  const res = await fetch(`${API}/api/financials/${analysisId}/url`, {
+    method: "POST",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function fetchFmpYears(analysisId: string, years = 5) {
+  const res = await fetch(`${API}/api/financials/${analysisId}/add-years`, {
+    method: "POST",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ years }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ── Overrides ─────────────────────────────────────────────────────────────────
+
+export async function getOverrides(analysisId: string) {
+  const res = await fetch(`${API}/api/overrides/${analysisId}`, {
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function saveOverrides(analysisId: string, data: object) {
+  const res = await fetch(`${API}/api/overrides/${analysisId}`, {
+    method: "PUT",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
