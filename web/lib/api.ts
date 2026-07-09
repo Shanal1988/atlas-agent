@@ -92,11 +92,15 @@ export function exportTxtUrl(id: string): string {
   return `${API}/api/export/${id}/txt`;
 }
 
-export async function askFollowUp(analysisId: string, message: string) {
+export async function askFollowUp(analysisId: string, message: string, file?: File) {
+  const token = await getAuthToken();
+  const form = new FormData();
+  form.append("message", message);
+  if (file) form.append("file", file);
   const res = await fetch(`${API}/api/chat/${analysisId}`, {
     method: "POST",
-    headers: await authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ message }),
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

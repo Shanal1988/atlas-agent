@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { askFollowUp, saveOverrides } from "@/lib/api";
-import { Send, Loader2, Globe, Check, X } from "lucide-react";
+import { Send, Loader2, Globe, Check, X, Paperclip } from "lucide-react";
 import { ChatSource, ProposedUpdate, AnalysisOverrides } from "@/lib/types";
 
 interface Message {
@@ -30,9 +30,11 @@ interface Props {
 export function FollowUpChat({ analysisId, company, ticker, overrides, onOverridesChange }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -42,13 +44,21 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
+    const fileToSend = attachedFile;
     setInput("");
+    setAttachedFile(null);
     setError(null);
-    setMessages((prev) => [...prev, { role: "user", content: trimmed }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: fileToSend ? `${trimmed}\n📎 ${fileToSend.name}` : trimmed,
+      },
+    ]);
     setLoading(true);
 
     try {
-      const data = await askFollowUp(analysisId, trimmed);
+      const data = await askFollowUp(analysisId, trimmed, fileToSend ?? undefined);
       setMessages((prev) => [
         ...prev,
         {
@@ -220,23 +230,60 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-slate-700 flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send(input)}
-          placeholder="Ask a follow-up question..."
-          disabled={loading}
-          className="flex-1 bg-slate-700 text-white text-sm rounded-lg px-3 py-2 placeholder-slate-500 outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-        />
-        <button
-          onClick={() => send(input)}
-          disabled={loading || !input.trim()}
-          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg transition-colors"
-        >
-          <Send className="w-4 h-4" />
-        </button>
+      <div className="border-t border-slate-700">
+        {/* Attached file pill */}
+        {attachedFile && (
+          <div className="px-4 pt-2 flex items-center gap-2">
+            <span className="flex items-center gap-1.5 text-xs bg-slate-700 text-slate-200 px-2.5 py-1 rounded-full">
+              <Paperclip className="w-3 h-3 text-blue-400" />
+              {attachedFile.name}
+              <button
+                onClick={() => setAttachedFile(null)}
+                className="ml-1 text-slate-400 hover:text-white"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          </div>
+        )}
+        <div className="px-4 py-3 flex gap-2">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.xlsx,.xls,.csv,.txt,.md"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) setAttachedFile(f);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            title="Attach a file (.pdf, .xlsx, .csv, .txt)"
+            className="text-slate-400 hover:text-slate-200 disabled:opacity-50 p-2 rounded-lg transition-colors"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send(input)}
+            placeholder="Ask a follow-up question..."
+            disabled={loading}
+            className="flex-1 bg-slate-700 text-white text-sm rounded-lg px-3 py-2 placeholder-slate-500 outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+          />
+          <button
+            onClick={() => send(input)}
+            disabled={loading || !input.trim()}
+            className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg transition-colors"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );

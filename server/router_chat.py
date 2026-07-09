@@ -1,9 +1,10 @@
 import json
 import os
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 
-from server.models import ChatRequest, ChatResponse, ChatSource, ProposedUpdate
+from server.models import ChatResponse, ChatSource, ProposedUpdate
 
 router = APIRouter()
 THESES_DIR = Path("data/theses")
@@ -87,8 +88,40 @@ def _load_upload_context(analysis_id: str) -> str:
     return "\n\n".join(texts)
 
 
+def _extract_file_text(file: UploadFile) -> str:
+    """Read uploaded file and return its text content (for inline chat context)."""
+    content = file.file.read()
+    filename = file.filename or ""
+    suffix = Path(filename).suffix.lower()
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(content))
+            return "\n".join(p.extract_text() or "" for p in reader.pages[:10])[:6000]
+        elif suffix in (".xlsx", ".xls"):
+            import openpyxl, io
+            wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+            rows = []
+            for sheet in wb.worksheets:
+                rows.append(f"=== {sheet.title} ===")
+                for row in sheet.iter_rows(values_only=True):
+                    r = "\t".join(str(c) if c is not None else "" for c in row)
+                    if r.strip():
+                        rows.append(r)
+            return "\n".join(rows[:300])[:6000]
+        else:
+            return content.decode("utf-8", errors="replace")[:6000]
+    except Exception as e:
+        return f"[Could not read file: {e}]"
+
+
 @router.post("/chat/{analysis_id}", response_model=ChatResponse)
-def chat(analysis_id: str, req: ChatRequest):
+async def chat(
+    analysis_id: str,
+    message: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+):
     path = THESES_DIR / f"{analysis_id}.json"
     if not path.exists():
         raise HTTPException(404, "Analysis not found")
@@ -101,7 +134,7 @@ def chat(analysis_id: str, req: ChatRequest):
     if not formatted_thesis:
         raise HTTPException(422, "No formatted thesis available for this analysis")
 
-    # Load any uploaded documents
+    # Load any previously uploaded documents
     upload_context = _load_upload_context(analysis_id)
     upload_section = f"\n\n--- UPLOADED DOCUMENTS ---\n{upload_context}" if upload_context else ""
 
@@ -115,13 +148,23 @@ def chat(analysis_id: str, req: ChatRequest):
         f"{upload_section}"
     )
 
+    # Build user message — append file content inline if provided
+    user_content = message
+    if file and file.filename:
+        file_text = _extract_file_text(file)
+        user_content = (
+            f"{message}\n\n"
+            f"--- ATTACHED FILE: {file.filename} ---\n"
+            f"{file_text}"
+        )
+
     import anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
 
     client = anthropic.Anthropic(api_key=api_key)
-    messages = [{"role": "user", "content": req.message}]
+    messages = [{"role": "user", "content": user_content}]
     tools = [_WEB_SEARCH_TOOL, _UPDATE_THESIS_TOOL]
 
     all_sources: list[dict] = []
