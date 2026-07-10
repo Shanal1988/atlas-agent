@@ -75,25 +75,40 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
     }
   }
 
-  async function applyUpdates(msgIdx: number, updates: ProposedUpdate[]) {
-    // Build a partial overrides patch from proposed_updates
-    const patch: Record<string, string> = {};
-    for (const u of updates) {
-      patch[u.field] = u.new_value;
-    }
+  // Thesis fields that are string arrays — chat sends new_value as a single
+  // string, so split it into list items before storing.
+  const ARRAY_FIELDS = new Set([
+    "bull_case", "bear_case", "watch_points",
+    "short_term_catalysts", "short_term_risks", "medium_term_milestones",
+  ]);
 
+  function toListItems(value: string): string[] {
+    const lines = value
+      .split("\n")
+      .map((l) => l.replace(/^\s*(?:[-*•→↑↓!✓◉]|\d+[.)])\s*/u, "").trim())
+      .filter(Boolean);
+    return lines.length > 1 ? lines : [value.trim()];
+  }
+
+  async function applyUpdates(msgIdx: number, updates: ProposedUpdate[]) {
     // Apply thesis field patches
-    const newThesis = { ...(overrides.thesis ?? {}) };
+    const newThesis: Record<string, string | string[]> = {
+      ...(overrides.thesis ?? {}),
+    };
     for (const u of updates) {
       if (u.field.startsWith("thesis.")) {
-        const key = u.field.replace("thesis.", "") as keyof typeof newThesis;
-        (newThesis as Record<string, string>)[key] = u.new_value;
+        const key = u.field.replace("thesis.", "");
+        newThesis[key] = ARRAY_FIELDS.has(key)
+          ? toListItems(u.new_value)
+          : u.new_value;
       }
     }
 
     const updated: AnalysisOverrides = {
       ...overrides,
-      thesis: Object.keys(newThesis).length ? newThesis : overrides.thesis,
+      thesis: Object.keys(newThesis).length
+        ? (newThesis as AnalysisOverrides["thesis"])
+        : overrides.thesis,
     };
 
     try {

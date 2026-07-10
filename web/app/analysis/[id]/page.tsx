@@ -67,6 +67,8 @@ export default function AnalysisPage() {
   const fisher = overrides.fisher
     ? { ...scores.fisher, total: overrides.fisher.total, rating: overrides.fisher.rating, points: overrides.fisher.points as any }
     : scores.fisher;
+  // Merge thesis overrides (accepted chat updates / manual edits) over original
+  const mergedThesis = overrides.thesis ? { ...thesis, ...overrides.thesis } : thesis;
 
   return (
     <div>
@@ -92,8 +94,8 @@ export default function AnalysisPage() {
       </div>
 
       <DecisionBanner
-        decision={thesis.decision}
-        rationale={thesis.decision_rationale}
+        decision={mergedThesis.decision}
+        rationale={mergedThesis.decision_rationale}
         company={data.company}
         ticker={data.ticker}
       />
@@ -103,7 +105,7 @@ export default function AnalysisPage() {
         {/* Left column - 2/3 */}
         <div className="lg:col-span-2 space-y-4">
           <CompanyProfileCard profile={profile} />
-          <ThesisDisplay thesis={thesis} />
+          <ThesisDisplay thesis={mergedThesis} />
           {judge_flags && Object.keys(judge_flags).length > 0 && (
             <JudgeFlags flags={judge_flags} />
           )}
