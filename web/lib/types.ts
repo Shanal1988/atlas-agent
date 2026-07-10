@@ -218,6 +218,12 @@ export interface ThesisSections {
   watch_points: string[];
   decision: "INVEST" | "WATCHLIST" | "PASS";
   decision_rationale: string;
+  // Horizon theses (generated from pipeline; may be absent on older analyses)
+  short_term_outlook?: string;
+  short_term_catalysts?: string[];
+  short_term_risks?: string[];
+  medium_term_outlook?: string;
+  medium_term_milestones?: string[];
 }
 
 export interface Analysis {

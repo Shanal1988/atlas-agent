@@ -332,6 +332,94 @@ def _write_thesis_sections(context: str) -> str:
     )
 
 
+# -- Horizon thesis system prompt -----------------------------------------------
+
+_HORIZON_SYSTEM = (
+    "You are a senior equity research analyst. Based on the company data and long-term thesis "
+    "provided, write focused outlooks for TWO time horizons.\n\n"
+    "Be specific — reference actual metrics, product cycles, earnings growth rates, and regulatory "
+    "timelines. SHORT-TERM catalysts must be near-term and actionable. "
+    "MEDIUM-TERM milestones should test whether the long-term thesis is on track at year 5.\n\n"
+    "Reply using EXACTLY these labels in order. No text outside labelled sections:\n"
+    "SHORT_TERM_OUTLOOK: [2-3 sentences — what must happen in the next 2-3 years for the bull thesis to play out; reference specific metrics or events]\n"
+    "SHORT_TERM_CATALYST_1: [specific near-term catalyst with expected timeframe, e.g. 'FY25 margin expansion to 30%+ as AI cost headwinds normalise']\n"
+    "SHORT_TERM_CATALYST_2: [specific near-term catalyst]\n"
+    "SHORT_TERM_CATALYST_3: [specific near-term catalyst]\n"
+    "SHORT_TERM_RISK_1: [specific near-term risk that could delay or invalidate the 2-3yr thesis — cite a number or named event]\n"
+    "SHORT_TERM_RISK_2: [specific near-term risk]\n"
+    "MEDIUM_TERM_OUTLOOK: [2-3 sentences — where should the company be in 5 years if the thesis is correct; name the revenue, margin, or market position milestone]\n"
+    "MEDIUM_TERM_MILESTONE_1: [specific measurable 5-year milestone, e.g. 'Revenue exceeds $10B with 25%+ operating margin']\n"
+    "MEDIUM_TERM_MILESTONE_2: [specific measurable 5-year milestone]\n"
+    "MEDIUM_TERM_MILESTONE_3: [specific measurable 5-year milestone — relates to moat or competitive position]\n"
+)
+
+_HORIZON_LABELS = [
+    "SHORT_TERM_OUTLOOK",
+    "SHORT_TERM_CATALYST_1", "SHORT_TERM_CATALYST_2", "SHORT_TERM_CATALYST_3",
+    "SHORT_TERM_RISK_1", "SHORT_TERM_RISK_2",
+    "MEDIUM_TERM_OUTLOOK",
+    "MEDIUM_TERM_MILESTONE_1", "MEDIUM_TERM_MILESTONE_2", "MEDIUM_TERM_MILESTONE_3",
+]
+
+
+def _write_horizon_sections(context: str, main_sections: dict) -> str:
+    """Second LLM call for short-term and medium-term thesis horizons."""
+    decision = main_sections.get("DECISION", "")
+    thesis_stmt = main_sections.get("THESIS_STATEMENT", "")
+    destination = main_sections.get("DESTINATION", "")
+    horizon_context = (
+        f"{context}\n\n"
+        f"=== LONG-TERM THESIS SUMMARY ===\n"
+        f"Decision: {decision}\n"
+        f"Thesis: {thesis_stmt}\n"
+        f"10-Year Destination: {destination}"
+    )
+    return _call_llm(
+        messages=[
+            {"role": "system", "content": _HORIZON_SYSTEM},
+            {"role": "user",   "content": horizon_context},
+        ],
+        max_tokens=1000,
+        temperature=0.15,
+    )
+
+
+def _parse_horizon_sections(text: str) -> dict:
+    result = {label: "" for label in _HORIZON_LABELS}
+    current_label = None
+    buffer: list[str] = []
+
+    for line in text.splitlines():
+        matched = False
+        for label in _HORIZON_LABELS:
+            if line.strip().startswith(f"{label}:"):
+                if current_label:
+                    result[current_label] = " ".join(buffer).strip()
+                current_label = label
+                rest = line.strip()[len(label) + 1:].strip()
+                buffer = [rest] if rest else []
+                matched = True
+                break
+        if not matched and current_label:
+            stripped = line.strip()
+            if stripped:
+                buffer.append(stripped)
+
+    if current_label:
+        result[current_label] = " ".join(buffer).strip()
+
+    # Strip bullet characters from list items
+    bullet_keys = {
+        "SHORT_TERM_CATALYST_1", "SHORT_TERM_CATALYST_2", "SHORT_TERM_CATALYST_3",
+        "SHORT_TERM_RISK_1", "SHORT_TERM_RISK_2",
+        "MEDIUM_TERM_MILESTONE_1", "MEDIUM_TERM_MILESTONE_2", "MEDIUM_TERM_MILESTONE_3",
+    }
+    for k in bullet_keys:
+        result[k] = result[k].lstrip("*-• ").strip()
+
+    return result
+
+
 # -- Parser --------------------------------------------------------------------
 
 _SECTION_LABELS = [
@@ -472,7 +560,8 @@ def _format_thesis(profile: dict, bmp_result: dict,
                    risk_result: dict, sections: dict, today_str: str,
                    valuation_result: dict | None = None,
                    industry_result: dict | None = None,
-                   similar_result: list | None = None) -> str:
+                   similar_result: list | None = None,
+                   horizon: dict | None = None) -> str:
     name    = profile.get("name", "N/A")
     ticker  = profile.get("ticker", "N/A")
     roe     = profile.get("roe")
@@ -566,6 +655,28 @@ def _format_thesis(profile: dict, bmp_result: dict,
         f"  {sections['DECISION_RATIONALE']}",
     ]
 
+    # Short-term / medium-term horizon sections
+    if horizon:
+        lines += [
+            "",
+            "  --- SHORT-TERM OUTLOOK (2-3 Years) ---",
+            _wrap(horizon.get("SHORT_TERM_OUTLOOK", "")),
+            "  Catalysts:",
+            f"  * {horizon.get('SHORT_TERM_CATALYST_1', '')}",
+            f"  * {horizon.get('SHORT_TERM_CATALYST_2', '')}",
+            f"  * {horizon.get('SHORT_TERM_CATALYST_3', '')}",
+            "  Near-Term Risks:",
+            f"  ! {horizon.get('SHORT_TERM_RISK_1', '')}",
+            f"  ! {horizon.get('SHORT_TERM_RISK_2', '')}",
+            "",
+            "  --- MEDIUM-TERM OUTLOOK (5 Years) ---",
+            _wrap(horizon.get("MEDIUM_TERM_OUTLOOK", "")),
+            "  Milestones:",
+            f"  ✓ {horizon.get('MEDIUM_TERM_MILESTONE_1', '')}",
+            f"  ✓ {horizon.get('MEDIUM_TERM_MILESTONE_2', '')}",
+            f"  ✓ {horizon.get('MEDIUM_TERM_MILESTONE_3', '')}",
+        ]
+
     # Industry analysis section
     if industry_result and industry_result.get("sections"):
         lines += [
@@ -615,7 +726,8 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
           judge_flags: dict | None = None,
           valuation_result: dict | None = None,
           industry_result: dict | None = None,
-          similar_result: list | None = None) -> tuple[str, str]:
+          similar_result: list | None = None,
+          horizon: dict | None = None) -> tuple[str, str]:
     Path("data/theses").mkdir(parents=True, exist_ok=True)
 
     safe_ticker = ticker.replace(".", "_")
@@ -696,6 +808,22 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             "watch_points":        [sections["WATCH_1"], sections["WATCH_2"], sections["WATCH_3"]],
             "decision":            sections["DECISION"],
             "decision_rationale":  sections["DECISION_RATIONALE"],
+            "short_term_outlook":  (horizon or {}).get("SHORT_TERM_OUTLOOK", ""),
+            "short_term_catalysts": [
+                (horizon or {}).get("SHORT_TERM_CATALYST_1", ""),
+                (horizon or {}).get("SHORT_TERM_CATALYST_2", ""),
+                (horizon or {}).get("SHORT_TERM_CATALYST_3", ""),
+            ],
+            "short_term_risks": [
+                (horizon or {}).get("SHORT_TERM_RISK_1", ""),
+                (horizon or {}).get("SHORT_TERM_RISK_2", ""),
+            ],
+            "medium_term_outlook":    (horizon or {}).get("MEDIUM_TERM_OUTLOOK", ""),
+            "medium_term_milestones": [
+                (horizon or {}).get("MEDIUM_TERM_MILESTONE_1", ""),
+                (horizon or {}).get("MEDIUM_TERM_MILESTONE_2", ""),
+                (horizon or {}).get("MEDIUM_TERM_MILESTONE_3", ""),
+            ],
         },
         "formatted_thesis": formatted,
     }
@@ -733,10 +861,14 @@ def run(profile: dict, bmp_result: dict,
     raw      = _write_thesis_sections(context)
     sections = _parse_sections(raw)
 
+    print(f"  [Thesis] Writing short-term and medium-term horizons...")
+    horizon_raw = _write_horizon_sections(context, sections)
+    horizon     = _parse_horizon_sections(horizon_raw)
+
     formatted = _format_thesis(
         profile, bmp_result, fisher_result, selection_result,
         risk_result, sections, today_str, valuation_result,
-        industry_result, similar_result,
+        industry_result, similar_result, horizon,
     )
 
     print(formatted)
@@ -771,7 +903,7 @@ def run(profile: dict, bmp_result: dict,
     json_path, txt_path = _save(
         ticker, today_str, profile, bmp_result, fisher_result,
         selection_result, risk_result, sections, formatted, judge_flags,
-        valuation_result, industry_result, similar_result,
+        valuation_result, industry_result, similar_result, horizon,
     )
 
     print(f"  [Thesis] Saved: {json_path}")
