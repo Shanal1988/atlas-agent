@@ -92,7 +92,12 @@ export function FinancialStatementsPanel({ analysisId }: Props) {
 
   function handleAddYear() {
     const yr = newYear.trim();
-    if (!yr || !data || data.years.includes(yr)) {
+    // Validate: 4-digit year in a sensible range
+    if (!/^\d{4}$/.test(yr) || +yr < 1980 || +yr > 2100) {
+      setNewYear("");
+      return; // keep the input open so the user can correct it
+    }
+    if (!data || data.years.includes(yr)) {
       setAddingYear(false);
       setNewYear("");
       return;
@@ -101,6 +106,28 @@ export function FinancialStatementsPanel({ analysisId }: Props) {
     setData(updated);
     setNewYear("");
     setAddingYear(false);
+    saveFinancials(analysisId, updated).catch(console.error);
+  }
+
+  function handleRemoveYear(year: string) {
+    if (!data) return;
+    if (!window.confirm(`Remove the ${year} column and all its values?`)) return;
+    const updated: FinancialStatements = {
+      ...data,
+      years: data.years.filter((y) => y !== year),
+    };
+    // Strip the year's values from all three statements
+    for (const stmt of ["income_statement", "balance_sheet", "cash_flow"] as const) {
+      const section = { ...(updated[stmt] as Record<string, Record<string, number | null>>) };
+      for (const key of Object.keys(section)) {
+        if (section[key] && year in section[key]) {
+          const { [year]: _removed, ...rest } = section[key];
+          section[key] = rest;
+        }
+      }
+      updated[stmt] = section;
+    }
+    setData(updated);
     saveFinancials(analysisId, updated).catch(console.error);
   }
 
@@ -228,6 +255,7 @@ export function FinancialStatementsPanel({ analysisId }: Props) {
             data={tableData}
             lineItemLabels={tab.labels}
             onCellChange={handleCellChange}
+            onRemoveYear={handleRemoveYear}
           />
         </div>
 

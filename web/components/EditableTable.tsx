@@ -7,6 +7,7 @@ interface EditableTableProps {
   data: Record<string, Record<string, number | null>>;
   lineItemLabels: Record<string, string>;
   onCellChange: (lineItem: string, year: string, value: number | null) => void;
+  onRemoveYear?: (year: string) => void;
 }
 
 function formatNumber(val: number | null): string {
@@ -63,7 +64,7 @@ function Cell({
   );
 }
 
-export function EditableTable({ years, data, lineItemLabels, onCellChange }: EditableTableProps) {
+export function EditableTable({ years, data, lineItemLabels, onCellChange, onRemoveYear }: EditableTableProps) {
   const sortedYears = [...years].sort((a, b) => b.localeCompare(a));
   const keys = Object.keys(lineItemLabels);
 
@@ -76,8 +77,19 @@ export function EditableTable({ years, data, lineItemLabels, onCellChange }: Edi
               Line Item
             </th>
             {sortedYears.map((yr) => (
-              <th key={yr} className="text-right text-slate-400 font-medium px-2 py-2 min-w-[100px]">
-                {yr}
+              <th key={yr} className="text-right text-slate-400 font-medium px-2 py-2 min-w-[100px] group">
+                <span className="inline-flex items-center gap-1">
+                  {yr}
+                  {onRemoveYear && (
+                    <button
+                      onClick={() => onRemoveYear(yr)}
+                      title={`Remove ${yr} column`}
+                      className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-opacity text-xs leading-none"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </span>
               </th>
             ))}
           </tr>
