@@ -59,44 +59,114 @@ def _is_us_listed(ticker: str) -> bool:
 
 # -- Peer discovery ------------------------------------------------------------
 
-def _fetch_peers(ticker: str, is_us: bool, company: str = "", industry: str = "") -> list[str]:
-    """Get list of peer/competitor tickers (max 6)."""
-    peers = []
+def _business_focus(profile: dict) -> str:
+    """Return a short business description for building targeted search queries."""
+    desc = (profile.get("description") or "")[:300]
+    moat = profile.get("moat") or ""
+    industry = profile.get("industry") or ""
+    # Prefer description over generic industry label
+    if desc and len(desc) > 40:
+        return desc
+    if moat and len(moat) > 20:
+        return f"{moat} {industry}"
+    return industry
 
-    if is_us:
-        data = _fmp("/peers", {"symbol": ticker})
-        if data and isinstance(data, list) and data:
-            peers = data[0].get("peersList", [])[:8]
 
-    if not peers:
+def _fetch_peers(ticker: str, is_us: bool, company: str = "", profile: dict | None = None) -> list[str]:
+    """Get list of peer/competitor tickers (max 6).
+
+    Strategy: always run semantic search (Tavily+Groq) to find true business competitors,
+    then merge with FMP/yfinance peers and deduplicate.  FMP's SIC-based peers are often
+    too generic (e.g. PYPL/SQ for Wise instead of RELY/WU).
+    """
+    fmp_peers: list[str] = []
+    mkt_cap = (profile or {}).get("market_cap")
+
+    # 1. FMP peers (SIC-code based — useful baseline but may be generic)
+    data = _fmp("/peers", {"symbol": ticker})
+    if data and isinstance(data, list) and data:
+        fmp_peers = data[0].get("peersList", [])[:8]
+
+    # 2. yfinance recommendedSymbols — only trust for US stocks (noisy for international)
+    yf_peers: list[str] = []
+    if is_us and not fmp_peers:
         try:
             t = yf.Ticker(ticker)
             recs = t.info.get("recommendedSymbols") or []
-            peers = [r.get("symbol") for r in recs if r.get("symbol")][:8]
+            yf_peers = [r.get("symbol") for r in recs if r.get("symbol")][:8]
         except Exception:
             pass
 
-    # Fallback: use Tavily + Groq to identify competitors by name, then resolve tickers
-    if not peers and (company or industry):
-        peers = _resolve_peers_via_search(company, industry, ticker)
+    # 3. Semantic search — ALWAYS run to find true business competitors
+    #    (e.g. Remitly, Western Union for Wise rather than generic payment co's)
+    semantic_peers: list[str] = []
+    if company:
+        focus = _business_focus(profile or {})
+        semantic_peers = _resolve_peers_via_search(company, focus, ticker)
 
-    peers = [p for p in peers if p and p.upper() != ticker.upper()]
-    return peers[:6]
+    # 4. Merge: semantic peers first (most accurate), then FMP/yf to fill gaps
+    seen: set[str] = set()
+    merged: list[str] = []
+    for p in semantic_peers + fmp_peers + yf_peers:
+        key = p.upper()
+        if p and key != ticker.upper() and key not in seen:
+            seen.add(key)
+            merged.append(p)
+
+    # 5. Drop size mismatches (giants >30x market cap — clearly wrong sector)
+    if mkt_cap:
+        merged = _filter_size_mismatches(merged, mkt_cap)
+
+    return merged[:6]
 
 
-def _resolve_peers_via_search(company: str, industry: str, ticker: str) -> list[str]:
+def _filter_size_mismatches(peer_tickers: list[str], target_mktcap: float) -> list[str]:
+    """Drop peers whose market cap is >30x the target (likely wrong industry matches)."""
+    import re
+    filtered = []
+    for pticker in peer_tickers:
+        try:
+            prof = _fmp("/profile", {"symbol": pticker})
+            if not prof:
+                filtered.append(pticker)
+                continue
+            peer_mc = prof[0].get("marketCap")
+            if peer_mc and target_mktcap:
+                ratio = peer_mc / target_mktcap
+                if ratio > 30:
+                    print(f"  [Industry] Dropping {pticker} (market cap {ratio:.0f}x target — likely wrong sector)")
+                    continue
+            filtered.append(pticker)
+        except Exception:
+            filtered.append(pticker)
+    return filtered
+
+
+def _resolve_peers_via_search(company: str, business_focus: str, ticker: str) -> list[str]:
     """Use Tavily search + Groq to identify competitor tickers when API peers unavailable."""
+    import re
     try:
-        from groq import Groq
-        query = f"{company} competitors publicly listed rivals {industry}"
-        snippets = _tavily_content(query, max_results=3)
+        # Build a targeted query from the business description, not the FMP industry label
+        query = f"{company} direct competitors publicly listed companies same business"
+        if business_focus and len(business_focus) > 20:
+            # Truncate to key phrase for search
+            focus_short = business_focus[:120]
+            query = f"{company} competitors {focus_short}"
+
+        snippets = _tavily_content(query, max_results=4)
 
         prompt = (
-            f"From the search results below, list the top 5-6 publicly traded competitors "
-            f"of {company} ({ticker}). Return ONLY ticker symbols, one per line. "
-            f"Use US tickers (e.g. PYPL, SQ) or Yahoo Finance format for international "
-            f"(e.g. ADYEN.AS). No numbering, no explanations, just the ticker.\n\n"
-            f"Example output:\nPYPL\nSQ\nADYEN.AS\n\n{snippets}"
+            f"From the search results below, list the top 5-6 publicly traded DIRECT competitors "
+            f"of {company} ({ticker}) — companies in the SAME specific business, not just the same broad sector.\n"
+            f"Business context: {business_focus[:200]}\n\n"
+            f"Focus on companies that compete head-to-head in the SAME niche "
+            f"(e.g. for a cross-border money transfer company like Wise: Remitly (RELY), Western Union (WU), "
+            f"MoneyGram, not generic payment processors like Stripe or Square).\n\n"
+            f"Return ONLY ticker symbols, one per line. "
+            f"Use US tickers (e.g. RELY, WU) or Yahoo Finance format for international "
+            f"(e.g. ADYEN.AS, WISE.L). No numbering, no explanations, just the ticker.\n\n"
+            f"Example output:\nRELY\nWU\nADYEN.AS\n\n"
+            f"Search results:\n{snippets}"
         )
         resp = _groq().chat.completions.create(
             model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}],
@@ -108,13 +178,10 @@ def _resolve_peers_via_search(company: str, industry: str, ticker: str) -> list[
             line = line.strip()
             if not line:
                 continue
-            # Strip leading numbering like "1.", "1)", "- "
-            import re
             line = re.sub(r"^[\d]+[.)]\s*", "", line)
             line = re.sub(r"^[-*•]\s*", "", line)
             token = line.split()[0].strip(".,;:()'\"*-") if line.split() else ""
             token = token.upper()
-            # Valid ticker: 1-10 chars, starts with letter, may contain . for exchange suffix
             if token and 1 <= len(token) <= 10 and token[0].isalpha():
                 tickers.append(token)
         return tickers[:6]
@@ -184,12 +251,26 @@ def _fetch_peer_metrics(peers: list[str]) -> list[dict]:
 
 # -- Qualitative industry research --------------------------------------------
 
-def _fetch_industry_qualitative(industry: str, sector: str, company: str) -> str:
-    """Two Tavily searches for industry context."""
-    searches = [
-        f"{industry} industry market size growth trends 2025 2026",
-        f"{industry} competitive landscape market structure barriers to entry",
-    ]
+def _fetch_industry_qualitative(industry: str, sector: str, company: str, profile: dict | None = None) -> str:
+    """Two Tavily searches for industry context, using actual business description if available."""
+    # Use specific business description for better search results
+    focus = _business_focus(profile or {}) if profile else industry
+    if not focus or len(focus) < 10:
+        focus = industry
+
+    # Build a short search phrase from the business description
+    if profile and profile.get("description") and len(profile["description"]) > 40:
+        # Extract a key phrase: company name + core business
+        desc_short = profile["description"][:150]
+        searches = [
+            f"{company} market size growth trends 2025 2026",
+            f"{desc_short} competitive landscape market structure",
+        ]
+    else:
+        searches = [
+            f"{focus} market size growth trends 2025 2026",
+            f"{focus} competitive landscape market structure barriers to entry",
+        ]
     try:
         combined = "\n\n===\n\n".join(_tavily_content(q) for q in searches)
         return combined
@@ -363,13 +444,13 @@ def run(profile: dict) -> dict:
     print(f"\n  [Industry] Analysing industry for {company}...")
 
     is_us = _is_us_listed(ticker)
-    peers = _fetch_peers(ticker, is_us, company, industry)
+    peers = _fetch_peers(ticker, is_us, company, profile)
     print(f"  [Industry] Found {len(peers)} peers: {', '.join(peers)}")
 
     peer_metrics = _fetch_peer_metrics(peers) if peers else []
     print(f"  [Industry] Fetched metrics for {len(peer_metrics)} peers.")
 
-    qualitative = _fetch_industry_qualitative(industry, sector, company)
+    qualitative = _fetch_industry_qualitative(industry, sector, company, profile)
     print("  [Industry] Synthesising industry analysis...")
 
     sections = _synthesise(profile, peer_metrics, qualitative)
