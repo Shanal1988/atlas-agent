@@ -69,17 +69,9 @@ _FMP_CF_MAP = {
 
 
 def _fmp(endpoint: str, params: dict) -> list | None:
-    """Single FMP API call. Returns list or None on error."""
-    params["apikey"] = os.environ.get("FMP_API_KEY", "")
-    resp = requests.get(f"{FMP_BASE}{endpoint}", params=params, timeout=15)
-    if resp.status_code in (401, 402, 403, 404):
-        return None
-    try:
-        resp.raise_for_status()
-        data = resp.json()
-        return data if data else None
-    except Exception:
-        return None
+    """Single FMP API call with 429 retry. Returns list or None on error."""
+    from agents.fmp_client import fmp_get
+    return fmp_get(endpoint, params)
 
 
 def _empty_statement(keys: list[str], years: list[str]) -> dict:

@@ -18,16 +18,8 @@ GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 # -- Shared helpers ------------------------------------------------------------
 
 def _fmp(endpoint: str, params: dict) -> list | None:
-    params["apikey"] = os.environ["FMP_API_KEY"]
-    try:
-        resp = requests.get(f"{FMP_BASE}{endpoint}", params=params, timeout=15)
-        if resp.status_code in (401, 402, 403, 404):
-            return None
-        resp.raise_for_status()
-        data = resp.json()
-        return data if data else None
-    except Exception:
-        return None
+    from agents.fmp_client import fmp_get
+    return fmp_get(endpoint, params)
 
 
 def _groq():

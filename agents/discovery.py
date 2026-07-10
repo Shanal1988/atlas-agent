@@ -118,17 +118,9 @@ def _resolve_ticker(company_name: str) -> str:
 # -- Step 2a: FMP data (US-listed) ---------------------------------------------
 
 def _fmp(endpoint: str, params: dict) -> list | None:
-    """Single FMP stable API call. Returns list or None on any error."""
-    params["apikey"] = os.environ["FMP_API_KEY"]
-    resp = requests.get(f"{FMP_BASE}{endpoint}", params=params, timeout=15)
-    if resp.status_code == 401:
-        print("  FMP error: Unauthorized -- check FMP_API_KEY in .env")
-        sys.exit(1)
-    if resp.status_code in (402, 403, 404):
-        return None
-    resp.raise_for_status()
-    data = resp.json()
-    return data if data else None
+    """Single FMP stable API call with 429 retry. Returns list or None on error."""
+    from agents.fmp_client import fmp_get
+    return fmp_get(endpoint, params)
 
 
 def _fetch_fmp_data(ticker: str) -> dict | None:
