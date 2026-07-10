@@ -94,16 +94,35 @@ export function exportTxtUrl(id: string): string {
 
 export async function askFollowUp(analysisId: string, message: string, file?: File) {
   const token = await getAuthToken();
-  const form = new FormData();
-  form.append("message", message);
-  if (file) form.append("file", file);
-  const res = await fetch(`${API}/api/chat/${analysisId}`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  // Retry once on network failure ("Failed to fetch") — happens when the
+  // backend restarts mid-request during a deployment.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const form = new FormData();
+    form.append("message", message);
+    if (file) form.append("file", file);
+    try {
+      const res = await fetch(`${API}/api/chat/${analysisId}`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    } catch (e) {
+      const isNetworkError = e instanceof TypeError;
+      if (isNetworkError && attempt === 0) {
+        // Backend likely restarting — wait and retry once
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      if (isNetworkError) {
+        throw new Error(
+          "Could not reach the server — it may be restarting. Please try again in a moment."
+        );
+      }
+      throw e;
+    }
+  }
 }
 
 // ── Financial Statements ──────────────────────────────────────────────────────
