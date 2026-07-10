@@ -2,6 +2,9 @@
 __pycache__/
 .DS_Store
 data/theses/
+data/uploads/
+data/financials/
+data/overrides/
 evals/results/
 evals/cache/
 data/reports/
