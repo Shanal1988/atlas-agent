@@ -208,9 +208,14 @@ def _enrich_peer_tickers(peer_tickers: list[str], exclude_ticker: str) -> list[d
             continue
         try:
             profile = _fmp("/profile", {"symbol": symbol})
-            ratios = _fmp("/ratios", {"symbol": symbol, "limit": 1})
             if not profile:
+                # FMP rate-limited or no data — fall back to yfinance
+                from agents.fmp_client import yf_company_metrics
+                yf_row = yf_company_metrics(symbol)
+                if yf_row:
+                    enriched.append(yf_row)
                 continue
+            ratios = _fmp("/ratios", {"symbol": symbol, "limit": 1})
             p = profile[0]
             r = ratios[0] if ratios else {}
             enriched.append({

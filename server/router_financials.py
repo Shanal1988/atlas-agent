@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from server.models import UrlExtractRequest, AddYearsRequest
 from server.financial_parser import (
     seed_from_fmp,
+    seed_from_yfinance,
     seed_from_analysis,
     merge_financials,
     parse_excel,
@@ -56,11 +57,15 @@ def _load_or_seed(analysis_id: str) -> dict:
     from_analysis = seed_from_analysis(analysis)
     financials = merge_financials(financials, from_analysis)
 
-    # Try FMP if ticker looks like a US ticker
-    if ticker and "." not in ticker and ":" not in ticker:
+    # Try FMP first, fall back to yfinance (rate limits / international tickers)
+    if ticker:
         fmp_data = seed_from_fmp(ticker, years=5)
         if fmp_data.get("years"):
             financials = merge_financials(financials, fmp_data)
+        else:
+            yf_data = seed_from_yfinance(ticker)
+            if yf_data.get("years"):
+                financials = merge_financials(financials, yf_data)
 
     _save_financials(analysis_id, financials)
     return financials
@@ -168,6 +173,8 @@ def add_fmp_years(analysis_id: str, req: AddYearsRequest):
         raise HTTPException(422, "No ticker found for this analysis")
 
     fmp_data = seed_from_fmp(ticker, years=req.years)
+    if not fmp_data.get("years"):
+        fmp_data = seed_from_yfinance(ticker)
     existing = _load_or_seed(analysis_id)
     merged = merge_financials(existing, fmp_data)
     _save_financials(analysis_id, merged)

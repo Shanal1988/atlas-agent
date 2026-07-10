@@ -138,6 +138,78 @@ def seed_from_fmp(ticker: str, years: int = 5) -> dict:
     return result
 
 
+# yfinance row label → our canonical keys
+_YF_INCOME_MAP = {
+    "Total Revenue": "revenue",
+    "Cost Of Revenue": "cost_of_revenue",
+    "Gross Profit": "gross_profit",
+    "Operating Expense": "operating_expenses",
+    "Operating Income": "operating_income",
+    "Interest Expense": "interest_expense",
+    "Pretax Income": "income_before_tax",
+    "Tax Provision": "income_tax_expense",
+    "Net Income": "net_income",
+    "Basic EPS": "eps_basic",
+    "Diluted EPS": "eps_diluted",
+}
+_YF_BALANCE_MAP = {
+    "Cash And Cash Equivalents": "cash_and_equivalents",
+    "Current Assets": "total_current_assets",
+    "Total Assets": "total_assets",
+    "Current Liabilities": "total_current_liabilities",
+    "Total Debt": "total_debt",
+    "Total Liabilities Net Minority Interest": "total_liabilities",
+    "Stockholders Equity": "total_equity",
+    "Ordinary Shares Number": "shares_outstanding",
+}
+_YF_CF_MAP = {
+    "Operating Cash Flow": "operating_cash_flow",
+    "Capital Expenditure": "capital_expenditures",
+    "Free Cash Flow": "free_cash_flow",
+    "Cash Dividends Paid": "dividends_paid",
+    "Repurchase Of Capital Stock": "share_buybacks",
+}
+
+
+def seed_from_yfinance(ticker: str) -> dict:
+    """
+    Fallback: fetch financial statements from yfinance when FMP is
+    rate-limited (daily quota) or has no data for the ticker.
+    """
+    result: dict[str, dict] = {
+        "income_statement": {k: {} for k in INCOME_KEYS},
+        "balance_sheet": {k: {} for k in BALANCE_KEYS},
+        "cash_flow": {k: {} for k in CASHFLOW_KEYS},
+        "years": [],
+    }
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        seen_years: set[str] = set()
+
+        for df, mapping, section in (
+            (t.income_stmt, _YF_INCOME_MAP, "income_statement"),
+            (t.balance_sheet, _YF_BALANCE_MAP, "balance_sheet"),
+            (t.cashflow, _YF_CF_MAP, "cash_flow"),
+        ):
+            if df is None or df.empty:
+                continue
+            for yf_label, our_key in mapping.items():
+                if yf_label not in df.index:
+                    continue
+                for col in df.columns:
+                    yr = str(getattr(col, "year", col))[:4]
+                    val = df.loc[yf_label, col]
+                    if val is not None and val == val:  # not NaN
+                        result[section][our_key][yr] = float(val)
+                        seen_years.add(yr)
+
+        result["years"] = sorted(seen_years, reverse=True)
+    except Exception:
+        pass
+    return result
+
+
 def seed_from_analysis(analysis_json: dict) -> dict:
     """Extract financial data from existing analysis JSON into our schema."""
     result: dict[str, dict] = {

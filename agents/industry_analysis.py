@@ -114,15 +114,19 @@ def _fetch_peers(ticker: str, is_us: bool, company: str = "", profile: dict | No
 
 def _filter_size_mismatches(peer_tickers: list[str], target_mktcap: float) -> list[str]:
     """Drop peers whose market cap is >30x the target (likely wrong industry matches)."""
-    import re
+    from agents.fmp_client import yf_company_metrics
     filtered = []
     for pticker in peer_tickers:
         try:
+            peer_mc = None
             prof = _fmp("/profile", {"symbol": pticker})
-            if not prof:
-                filtered.append(pticker)
-                continue
-            peer_mc = prof[0].get("marketCap")
+            if prof:
+                peer_mc = prof[0].get("marketCap")
+            else:
+                # FMP quota exhausted — try yfinance for market cap
+                yf_row = yf_company_metrics(pticker)
+                if yf_row:
+                    peer_mc = yf_row.get("market_cap")
             if peer_mc and target_mktcap:
                 ratio = peer_mc / target_mktcap
                 if ratio > 30:
@@ -212,21 +216,27 @@ def _fmt_pct(n) -> str:
 
 
 def _fetch_peer_metrics(peers: list[str]) -> list[dict]:
-    """Fetch key comparison metrics for each peer via FMP (ratios + key-metrics + growth)."""
+    """Fetch key comparison metrics for each peer via FMP, with yfinance fallback
+    when FMP is rate-limited (daily quota) or has no data."""
+    from agents.fmp_client import yf_company_metrics
     results = []
     for peer in peers:
         try:
             profile = _fmp("/profile", {"symbol": peer})
+            if not profile:
+                # FMP quota exhausted or no data — fall back to yfinance
+                yf_row = yf_company_metrics(peer)
+                if yf_row:
+                    results.append(yf_row)
+                continue
             ratios = _fmp("/ratios", {"symbol": peer, "limit": 1})
             km = _fmp("/key-metrics", {"symbol": peer, "limit": 1})
             growth = _fmp("/financial-growth", {"symbol": peer, "limit": 1})
-            if not profile:
-                continue
             p = profile[0]
             r = ratios[0] if ratios else {}
             k = km[0] if km else {}
             g = growth[0] if growth else {}
-            results.append({
+            row = {
                 "ticker":           peer,
                 "name":             p.get("companyName"),
                 "market_cap":       p.get("marketCap"),
@@ -238,7 +248,15 @@ def _fetch_peer_metrics(peers: list[str]) -> list[dict]:
                 "price":            p.get("price"),
                 "sector":           p.get("sector"),
                 "industry":         p.get("industry"),
-            })
+            }
+            # If ratio endpoints were rate-limited, patch gaps from yfinance
+            if row["pe_ratio"] is None and row["roe"] is None and row["operating_margin"] is None:
+                yf_row = yf_company_metrics(peer)
+                if yf_row:
+                    for key in ("pe_ratio", "roe", "operating_margin", "revenue_growth"):
+                        if row.get(key) is None:
+                            row[key] = yf_row.get(key)
+            results.append(row)
         except Exception:
             continue
     return results
