@@ -283,8 +283,12 @@ def _fetch_industry_qualitative(industry: str, sector: str, company: str, profil
 _INDUSTRY_SYSTEM = (
     "You are an industry research analyst. Based on the company data, peer comparison metrics, "
     "and industry research provided, deliver a structured industry analysis.\n\n"
+    "IMPORTANT: Use the 'Business Focus' field (derived from the company description) to define "
+    "the industry — NOT the generic 'Sector' label which may be inaccurate. For example, if the "
+    "company does cross-border money transfers, the industry is 'cross-border payments / remittance', "
+    "not 'Information Technology Services'.\n\n"
     "Reply using EXACTLY these labels, each on a new line:\n"
-    "INDUSTRY_OVERVIEW: [2-3 sentences on industry size, growth rate, and stage]\n"
+    "INDUSTRY_OVERVIEW: [2-3 sentences on industry size, growth rate, and stage — name the specific industry from the business description]\n"
     "MARKET_STRUCTURE: [oligopoly/fragmented/consolidating/etc. with 1-2 sentence explanation]\n"
     "COMPETITIVE_POSITION: [where does the target company rank among peers, 1-2 sentences]\n"
     "KEY_DYNAMICS: [2-3 most important competitive dynamics or trends, one sentence each]\n"
@@ -308,13 +312,15 @@ def _synthesise(profile: dict, peer_metrics: list[dict], qualitative: str) -> di
             f"RevGrowth: {_fmt_pct(pm.get('revenue_growth'))}"
         )
 
+    # Derive real business focus from description; fall back to industry label only if needed
+    business_focus = _business_focus(profile)
+
     context = (
         f"=== TARGET COMPANY ===\n"
-        f"Company:       {profile.get('name', 'N/A')}\n"
-        f"Ticker:        {profile.get('ticker', 'N/A')}\n"
-        f"Sector:        {profile.get('sector', 'N/A')}\n"
-        f"Industry:      {profile.get('industry', 'N/A')}\n"
-        f"Market Cap:    {_fmt_num(profile.get('market_cap'))}\n"
+        f"Company:        {profile.get('name', 'N/A')}\n"
+        f"Ticker:         {profile.get('ticker', 'N/A')}\n"
+        f"Business Focus: {business_focus}\n"
+        f"Market Cap:     {_fmt_num(profile.get('market_cap'))}\n"
         f"ROE:           {_fmt_pct(profile.get('roe'))}\n"
         f"ROCE (avg):    {_fmt_pct(profile.get('roce_avg'))}\n"
         f"ROIC (avg):    {_fmt_pct(profile.get('roic_avg'))}\n"
