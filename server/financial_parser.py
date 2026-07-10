@@ -210,9 +210,22 @@ def merge_financials(existing: dict, new_data: dict) -> dict:
     return merged
 
 
+# Keywords indicating a row contains financial statement data — used to filter
+# large freeform analyst workbooks down to the relevant statement rows.
+_FIN_ROW_KEYWORDS = (
+    "revenue", "income", "profit", "loss", "ebitda", "ebit", "margin",
+    "cost of", "expense", "tax", "eps", "asset", "liabilit", "equity",
+    "debt", "cash", "capex", "capital expenditure", "share", "dividend",
+    "buyback", "operating", "free cash", "balance sheet", "statement",
+    "gross", "net inc", "depreciation", "amortisation", "amortization",
+)
+
+
 def parse_excel(file_path: Path) -> dict:
     """
     Parse an Excel or CSV file and extract financial data using LLM.
+    Filters large freeform workbooks down to rows containing financial
+    keywords so the statements aren't lost outside the LLM context window.
     Returns partial financials dict (only years/statement keys found).
     """
     content = ""
@@ -220,20 +233,38 @@ def parse_excel(file_path: Path) -> dict:
 
     try:
         if suffix == ".csv":
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+            content = file_path.read_text(encoding="utf-8", errors="replace")[:14000]
         else:
             import openpyxl
             wb = openpyxl.load_workbook(file_path, data_only=True)
-            rows = []
+            relevant: list[str] = []
+            fallback: list[str] = []
             for sheet in wb.worksheets:
-                rows.append(f"=== Sheet: {sheet.title} ===")
+                header_added = False
                 for row in sheet.iter_rows(values_only=True):
-                    row_str = "\t".join(str(c) if c is not None else "" for c in row)
-                    if row_str.strip():
-                        rows.append(row_str)
-            content = "\n".join(rows[:500])  # limit to 500 rows
+                    row_str = "\t".join(str(c) if c is not None else "" for c in row).strip()
+                    if not row_str:
+                        continue
+                    low = row_str.lower()
+                    if any(k in low for k in _FIN_ROW_KEYWORDS):
+                        if not header_added:
+                            relevant.append(f"=== Sheet: {sheet.title} ===")
+                            header_added = True
+                        relevant.append(row_str)
+                    elif len(fallback) < 300:
+                        fallback.append(row_str)
+                    if len(relevant) >= 800:
+                        break
+                if len(relevant) >= 800:
+                    break
+            rows = relevant if relevant else fallback[:500]
+            content = "\n".join(rows)[:14000]
     except Exception as e:
         return {"error": str(e), "years": [], "income_statement": {}, "balance_sheet": {}, "cash_flow": {}}
+
+    if not content.strip():
+        return {"error": "No readable content found in file", "years": [],
+                "income_statement": {}, "balance_sheet": {}, "cash_flow": {}}
 
     return _llm_extract_financials(content)
 
@@ -315,21 +346,23 @@ Available cash_flow keys: {CASHFLOW_KEYS}
 
 Rules:
 - All monetary values must be raw numbers (not in millions/billions notation)
-- If values are in millions, multiply by 1,000,000
+- If values are in millions (e.g. "£ million", "Mn", "GBP Mn"), multiply by 1,000,000
 - If values are in billions, multiply by 1,000,000,000
-- Use 4-digit year strings as keys (e.g. "2024")
+- Use 4-digit year strings as keys (e.g. "2024"). Fiscal year dates like "31/3/2025" → "2025"
+- Skip forecast/estimate columns (marked with 'e' like "FY26e" or "2026e")
+- Ignore spreadsheet errors like #DIV/0!, #REF!
 - Return null for values you cannot find
 - Return ONLY the JSON object, no explanation
 
 Text:
-{content[:6000]}"""
+{content[:14000]}"""
 
     import anthropic
     try:
         client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=2048,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.content[0].text.strip()

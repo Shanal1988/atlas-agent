@@ -88,10 +88,8 @@ def _load_upload_context(analysis_id: str) -> str:
     return "\n\n".join(texts)
 
 
-def _extract_file_text(file: UploadFile) -> str:
-    """Read uploaded file and return its text content (for inline chat context)."""
-    content = file.file.read()
-    filename = file.filename or ""
+def _extract_file_text(content: bytes, filename: str) -> str:
+    """Return text content of an uploaded file (for inline chat context)."""
     suffix = Path(filename).suffix.lower()
     try:
         if suffix == ".pdf":
@@ -101,15 +99,28 @@ def _extract_file_text(file: UploadFile) -> str:
             return "\n".join(p.extract_text() or "" for p in reader.pages[:10])[:6000]
         elif suffix in (".xlsx", ".xls"):
             import openpyxl, io
+            from server.financial_parser import _FIN_ROW_KEYWORDS
             wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-            rows = []
+            relevant, fallback = [], []
             for sheet in wb.worksheets:
-                rows.append(f"=== {sheet.title} ===")
+                header_added = False
                 for row in sheet.iter_rows(values_only=True):
-                    r = "\t".join(str(c) if c is not None else "" for c in row)
-                    if r.strip():
-                        rows.append(r)
-            return "\n".join(rows[:300])[:6000]
+                    r = "\t".join(str(c) if c is not None else "" for c in row).strip()
+                    if not r:
+                        continue
+                    if any(k in r.lower() for k in _FIN_ROW_KEYWORDS):
+                        if not header_added:
+                            relevant.append(f"=== {sheet.title} ===")
+                            header_added = True
+                        relevant.append(r)
+                    elif len(fallback) < 100:
+                        fallback.append(r)
+                    if len(relevant) >= 500:
+                        break
+                if len(relevant) >= 500:
+                    break
+            rows = relevant if relevant else fallback
+            return "\n".join(rows)[:10000]
         else:
             return content.decode("utf-8", errors="replace")[:6000]
     except Exception as e:
@@ -142,8 +153,16 @@ async def chat(
         f"You are Atlas, an AI equity research analyst. You have performed a detailed "
         f"investment analysis of {company} ({ticker}).\n"
         f"Answer follow-up questions based on the analysis below. You can also search the web "
-        f"for current information when needed. If new information materially changes the thesis, "
-        f"use the update_thesis tool to propose the change — the user will confirm it.\n\n"
+        f"for current information when needed.\n\n"
+        f"THESIS UPDATES: Be proactive about keeping the thesis current. When the user:\n"
+        f"- shares new information or their own research,\n"
+        f"- uploads/attaches a file with relevant data,\n"
+        f"- proposes a change or disagrees with part of the analysis,\n"
+        f"- or when your web search reveals something material,\n"
+        f"then ASK the user whether they'd like the thesis updated, and use the update_thesis "
+        f"tool to propose specific section changes (executive_summary, bull_case, bear_case, "
+        f"thesis_statement, watch_points, decision, decision_rationale). Propose one update per "
+        f"changed section with a clear reason. The user reviews and confirms each change.\n\n"
         f"--- ANALYSIS ---\n{formatted_thesis}"
         f"{upload_section}"
     )
@@ -151,7 +170,15 @@ async def chat(
     # Build user message — append file content inline if provided
     user_content = message
     if file and file.filename:
-        file_text = _extract_file_text(file)
+        raw = await file.read()
+        # Persist attachment so future chat turns can reference it
+        try:
+            upload_dir = UPLOADS_DIR / analysis_id
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            (upload_dir / file.filename).write_bytes(raw)
+        except Exception:
+            pass
+        file_text = _extract_file_text(raw, file.filename)
         user_content = (
             f"{message}\n\n"
             f"--- ATTACHED FILE: {file.filename} ---\n"
