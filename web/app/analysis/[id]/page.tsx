@@ -67,8 +67,28 @@ export default function AnalysisPage() {
   const fisher = overrides.fisher
     ? { ...scores.fisher, total: overrides.fisher.total, rating: overrides.fisher.rating, points: overrides.fisher.points as any }
     : scores.fisher;
-  // Merge thesis overrides (accepted chat updates / manual edits) over original
-  const mergedThesis = overrides.thesis ? { ...thesis, ...overrides.thesis } : thesis;
+  // Merge thesis overrides (accepted chat updates / manual edits) over original.
+  // Older overrides may have stored array fields (bull_case etc.) as plain
+  // strings — normalise them into arrays so .map() rendering doesn't crash.
+  const THESIS_ARRAY_FIELDS = [
+    "bull_case", "bear_case", "watch_points",
+    "short_term_catalysts", "short_term_risks", "medium_term_milestones",
+  ] as const;
+  let mergedThesis = thesis;
+  if (overrides.thesis) {
+    const patch: Record<string, unknown> = { ...overrides.thesis };
+    for (const key of THESIS_ARRAY_FIELDS) {
+      const v = patch[key];
+      if (typeof v === "string") {
+        const lines = v
+          .split("\n")
+          .map((l) => l.replace(/^\s*(?:[-*•→↑↓!✓◉]|\d+[.)])\s*/u, "").trim())
+          .filter(Boolean);
+        patch[key] = lines.length ? lines : [v];
+      }
+    }
+    mergedThesis = { ...thesis, ...(patch as Partial<typeof thesis>) };
+  }
 
   return (
     <div>
