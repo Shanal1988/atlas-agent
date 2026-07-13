@@ -168,16 +168,31 @@ def _discover_tickers(region: str, sector: str | None, themes: list[dict]) -> li
     if not search_content:
         return []
 
+    # Region-specific suffix instructions
+    suffix_instructions = {
+        "USA": "US tickers need no suffix (e.g. CRWD, AXON, DLO).",
+        "UK": "ALL UK tickers MUST end with .L suffix (e.g. AAF.L, TSTL.L, OSB.L, DARK.L). Never omit the .L suffix.",
+        "Europe": (
+            "ALL European tickers MUST include the exchange suffix: "
+            ".PA for Paris (e.g. AIR.PA), .DE for Frankfurt (e.g. SAP.DE), "
+            ".AS for Amsterdam (e.g. ASML.AS), .MI for Milan (e.g. RACE.MI), "
+            ".MC for Madrid (e.g. ITX.MC). Never omit the suffix."
+        ),
+        "India": (
+            "ALL Indian tickers MUST end with .NS suffix for NSE (e.g. KPITTECH.NS, TEJASNET.NS, "
+            "AFFLE.NS, LTIM.NS, COFORGE.NS, PERSISTENT.NS, BAJFINANCE.NS, TATAELXSI.NS). "
+            "Use the exact NSE symbol as listed on Yahoo Finance. Never omit the .NS suffix."
+        ),
+    }
+
     prompt = (
         f"From the search results below, extract 15-25 specific stock ticker symbols "
-        f"of hidden gem / high-growth companies in {region}{sector_str}.{theme_hint}\n\n"
+        f"of hidden gem / high-growth companies listed in {region}{sector_str}.{theme_hint}\n\n"
         "Requirements:\n"
         "- Small to mid cap ($200M - $50B market cap)\n"
         "- High revenue growth or strong competitive position\n"
-        "- Include the stock exchange suffix for non-US tickers "
-        "(e.g. .L for London, .NS for NSE India, .BO for BSE India, "
-        ".PA for Paris, .DE for Frankfurt, .AS for Amsterdam, .MI for Milan, .MC for Madrid)\n"
-        "- US tickers need no suffix (e.g. CRWD, AXON)\n\n"
+        "- Only include companies actually listed on exchanges in the target region\n"
+        f"- CRITICAL — ticker format: {suffix_instructions.get(region, '')}\n\n"
         "Reply ONLY with valid JSON — an array of objects with keys: "
         "ticker, name, region.\n"
         "No markdown fences, no explanation.\n\n"
@@ -205,8 +220,18 @@ def _discover_tickers(region: str, sector: str | None, themes: list[dict]) -> li
                 clean = clean.strip()
             tickers = json.loads(clean)
             if isinstance(tickers, list):
+                # Auto-fix missing exchange suffixes for non-US regions
+                default_suffix = {
+                    "India": ".NS", "UK": ".L",
+                }.get(region)
                 for t in tickers:
                     t["_region"] = region
+                    ticker = t.get("ticker", "")
+                    # Remove spaces in tickers (LLM sometimes adds them)
+                    ticker = ticker.replace(" ", "")
+                    if default_suffix and "." not in ticker and ticker:
+                        ticker = ticker + default_suffix
+                    t["ticker"] = ticker
                 return tickers[:25]
         except (json.JSONDecodeError, TypeError):
             pass
