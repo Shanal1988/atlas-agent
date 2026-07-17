@@ -18,9 +18,11 @@ load_dotenv()
 # Pipeline stage imports
 from agents.discovery import run as discover
 from agents.industry_analysis import run as industry_analysis
+from agents.munger import run as munger
 from agents.bmp_gate import run as bmp_gate
 from agents.fisher import run as fisher
 from agents.stock_selection import run as stock_selection
+from agents.process_scoring import run as process_scoring
 from agents.risk_scoring import run as risk_scoring
 from agents.valuation import run as valuation
 from agents.similar_companies import run as similar_companies
@@ -28,15 +30,17 @@ from agents.thesis_writer import run as thesis_writer
 
 
 STAGES = [
-    {"key": "discovery",  "label": "Company Discovery",  "order": 1},
-    {"key": "industry",   "label": "Industry Analysis",  "order": 2},
-    {"key": "bmp",        "label": "BMP Gate",           "order": 3},
-    {"key": "fisher",     "label": "Fisher Analysis",    "order": 4},
-    {"key": "selection",  "label": "Stock Selection",    "order": 5},
-    {"key": "risk",       "label": "Risk Scoring",       "order": 6},
-    {"key": "valuation",  "label": "Valuation",          "order": 7},
-    {"key": "similar",    "label": "Similar Companies",  "order": 8},
-    {"key": "thesis",     "label": "Thesis Writer",      "order": 9},
+    {"key": "discovery",  "label": "Company Discovery",   "order": 1},
+    {"key": "industry",   "label": "Industry Analysis",   "order": 2},
+    {"key": "munger",     "label": "Munger Four Filters", "order": 3},
+    {"key": "bmp",        "label": "BMP Gate",            "order": 4},
+    {"key": "fisher",     "label": "Fisher Analysis",     "order": 5},
+    {"key": "selection",  "label": "Stock Selection",     "order": 6},
+    {"key": "valuation",  "label": "Valuation",           "order": 7},
+    {"key": "process",    "label": "Process Scorecards",  "order": 8},
+    {"key": "risk",       "label": "Risk Scoring",        "order": 9},
+    {"key": "similar",    "label": "Similar Companies",   "order": 10},
+    {"key": "thesis",     "label": "Thesis Writer",       "order": 11},
 ]
 
 
@@ -118,41 +122,56 @@ def _run_pipeline(job: Job):
             industry_result = industry_analysis(profile)
             complete_stage("industry")
 
-            # Stage 3: BMP Gate
+            # Stage 3: Munger Four Filters
+            run_stage("munger")
+            munger_result = munger(profile)
+            complete_stage("munger")
+
+            # Stage 4: BMP Gate
             run_stage("bmp")
             bmp_result = bmp_gate(profile)
             complete_stage("bmp")
 
-            # Stage 4: Fisher
+            # Stage 5: Fisher
             run_stage("fisher")
             fisher_result = fisher(profile, bmp_result["verdict"])
             complete_stage("fisher")
 
-            # Stage 5: Stock Selection
+            # Stage 6: Stock Selection
             run_stage("selection")
             selection_result = stock_selection(profile, bmp_result["verdict"])
             complete_stage("selection")
-
-            # Stage 6: Risk Scoring
-            run_stage("risk")
-            risk_result = risk_scoring(profile, bmp_result, fisher_result, selection_result)
-            complete_stage("risk")
 
             # Stage 7: Valuation
             run_stage("valuation")
             valuation_result = valuation(profile)
             complete_stage("valuation")
 
-            # Stage 8: Similar Companies
+            # Stage 8: Process Scorecards
+            run_stage("process")
+            process_result = process_scoring(
+                profile, bmp_result, fisher_result, selection_result, valuation_result,
+            )
+            complete_stage("process")
+
+            # Stage 9: Risk Scoring
+            run_stage("risk")
+            risk_result = risk_scoring(
+                profile, bmp_result, fisher_result, selection_result, process_result,
+            )
+            complete_stage("risk")
+
+            # Stage 10: Similar Companies
             run_stage("similar")
             similar_result = similar_companies(profile, industry_result)
             complete_stage("similar")
 
-            # Stage 9: Thesis Writer
+            # Stage 11: Thesis Writer
             run_stage("thesis")
             thesis_result = thesis_writer(
                 profile, bmp_result, fisher_result, selection_result,
                 risk_result, valuation_result, industry_result, similar_result,
+                munger_result=munger_result, process_result=process_result,
             )
             complete_stage("thesis")
 

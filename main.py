@@ -10,9 +10,11 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from agents.discovery import run as discover
 from agents.industry_analysis import run as industry_analysis
+from agents.munger import run as munger
 from agents.bmp_gate import run as bmp_gate
 from agents.fisher import run as fisher
 from agents.stock_selection import run as stock_selection
+from agents.process_scoring import run as process_scoring
 from agents.risk_scoring import run as risk_scoring
 from agents.thesis_writer import run as thesis_writer
 from agents.valuation import run as valuation
@@ -27,14 +29,19 @@ def main():
     company_name      = " ".join(sys.argv[1:])
     profile           = discover(company_name)
     industry_result   = industry_analysis(profile)
+    munger_result     = munger(profile)
     bmp_result        = bmp_gate(profile)
     fisher_result     = fisher(profile, bmp_result["verdict"])
     selection_result  = stock_selection(profile, bmp_result["verdict"])
-    risk_result       = risk_scoring(profile, bmp_result, fisher_result, selection_result)
     valuation_result  = valuation(profile)
+    process_result    = process_scoring(profile, bmp_result, fisher_result,
+                                        selection_result, valuation_result)
+    risk_result       = risk_scoring(profile, bmp_result, fisher_result,
+                                     selection_result, process_result)
     similar_result    = similar_companies(profile, industry_result)
     thesis_writer(profile, bmp_result, fisher_result, selection_result, risk_result,
-                  valuation_result, industry_result, similar_result)
+                  valuation_result, industry_result, similar_result,
+                  munger_result=munger_result, process_result=process_result)
 
 
 if __name__ == "__main__":

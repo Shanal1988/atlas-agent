@@ -83,7 +83,13 @@ _THESIS_SYSTEM = (
     "A stock trading at a significant premium to midpoint IV (>50%) warrants WATCHLIST "
     "unless conviction is HIGH and growth clearly exceeds model assumptions — name why. "
     "A stock at a discount to IV strengthens the case for INVEST. "
-    "Never choose INVEST without acknowledging whether the price is near, above, or below IV."
+    "Never choose INVEST without acknowledging whether the price is near, above, or below IV.\n\n"
+    "Process guardrails for DECISION (these are hard rules from the investor's process): "
+    "if the Anti-Fragile score is below 7 the process says IGNORE — never choose INVEST. "
+    "If the Crushability category is GLASS BOTTLE or EGG — never choose INVEST. "
+    "If a price veto is flagged (operating earnings yield < 5%) the best allowed decision "
+    "is WATCHLIST. When process scores are provided, the DECISION_RATIONALE must reference "
+    "the Feroldi quality score and the stage allocation guidance."
 )
 
 
@@ -155,11 +161,69 @@ def _iv_summary_line(valuation_result: dict | None) -> str:
     )
 
 
+def _process_scores_block(munger_result: dict | None,
+                          process_result: dict | None,
+                          risk_result: dict) -> list[str]:
+    """=== PROCESS SCORES === context block from the investing-process frameworks."""
+    if not munger_result and not process_result:
+        return []
+    lines = ["", "=== PROCESS SCORES (the investor's own frameworks) ==="]
+
+    if munger_result:
+        ratings = ", ".join(f"{f['key']} {f['label']}: {f['rating']}"
+                            for f in munger_result.get("filters", []))
+        lines.append(f"Munger Four Filters: {munger_result.get('pass_count', 0)}/4 passed "
+                     f"({ratings}) — {munger_result.get('verdict', 'N/A')}")
+
+    p = process_result or {}
+    fer = p.get("feroldi")
+    if fer:
+        secs = ", ".join(f"{s['label']} {s['score']}/{s['max']}" for s in fer.get("sections", []))
+        lines.append(f"Feroldi Quality Score: {fer.get('total')}/100 [{fer.get('band', 'N/A')}] "
+                     f"(pre-Gauntlet {fer.get('pre_gauntlet')}, Gauntlet {fer.get('gauntlet')}; {secs})")
+        deductions = [g for g in fer.get("gauntlet_items", []) if g.get("score", 0) < 0]
+        if deductions:
+            worst = sorted(deductions, key=lambda g: g["score"])[:3]
+            lines.append("  Top Gauntlet deductions: "
+                         + "; ".join(f"{g['label']} ({g['score']})" for g in worst))
+    af = p.get("antifragile")
+    if af:
+        lines.append(f"Anti-Fragile Score: {af.get('total')} (range -7..17) [{af.get('band', 'N/A')}]"
+                     + ("  — BELOW 7: process says IGNORE" if (af.get("total") or 0) < 7 else ""))
+    vs = p.get("vital_signs")
+    if vs:
+        weakest = sorted(vs.get("items", []), key=lambda i: i["score"])[:2]
+        lines.append(f"Ten Vital Signs: {vs.get('total')}/10"
+                     + (" — weakest: " + "; ".join(f"{i['label']} [{i['score']}]" for i in weakest)
+                        if weakest else ""))
+    qs = p.get("quality_screen")
+    if qs:
+        lines.append(f"Quality Screen: qualitative {qs.get('qualitative', {}).get('total')}, "
+                     f"quantitative {qs.get('quantitative', {}).get('total')}, "
+                     f"valuation {qs.get('valuation', {}).get('total')} "
+                     f"— overall rank score {qs.get('overall')}")
+    st = p.get("stage")
+    if st:
+        lines.append(f"Investment Stage: {st.get('stage_number')} ({st.get('stage_label')}) — "
+                     f"risk {st.get('risk')}, allocation guidance {st.get('allocation_guidance')} "
+                     f"(cap {st.get('stage_cap_pct')}%); Lynch: {st.get('lynch_category')}")
+
+    lines.append(f"Crushability: {risk_result.get('category', 'N/A')} "
+                 f"({risk_result.get('no_count', 'N/A')} NOs) — final position "
+                 f"{risk_result.get('position_pct', 0)}%"
+                 + ("  — PRICE VETO ACTIVE (OEY < 5%)" if risk_result.get("price_veto") else ""))
+    for note in risk_result.get("sizing_notes", []):
+        lines.append(f"  Sizing note: {note}")
+    return lines
+
+
 def _build_context(profile: dict, bmp_result: dict,
                    fisher_result: dict | None, selection_result: dict | None,
                    risk_result: dict, valuation_result: dict | None = None,
                    industry_result: dict | None = None,
-                   similar_result: list | None = None) -> str:
+                   similar_result: list | None = None,
+                   munger_result: dict | None = None,
+                   process_result: dict | None = None) -> str:
     roe     = profile.get("roe")
     insider = profile.get("insider_ownership_pct")
     cagr    = profile.get("revenue_cagr")
@@ -228,6 +292,9 @@ def _build_context(profile: dict, bmp_result: dict,
         f"Conviction:        {risk_result.get('conviction', 'N/A')}",
         f"Position Size:     {risk_result.get('position_pct', 0)}%",
         _iv_summary_line(valuation_result),
+    ]
+    lines += _process_scores_block(munger_result, process_result, risk_result)
+    lines += [
         "",
         "=== STRENGTHS (evidence for bull case) ===",
     ]
@@ -239,15 +306,15 @@ def _build_context(profile: dict, bmp_result: dict,
     else:
         lines.append("None — all questions scored YES or PARTIAL.")
 
-    lines += ["", "=== RISK FACTOR PENALTIES ==="]
-    for f in risk_factors:
-        lines.append(f"{f['label']}: [{f['penalty']}] {f['reasoning']}")
-
-    lines += [
-        "",
-        f"Total risk penalty: +{risk_result.get('total_penalty', 0)} NOs",
-        f"Adjusted NO count:  {risk_result.get('adjusted_nos', 0)}",
-    ]
+    risk_nos = [q for q in risk_result.get("questions", [])
+                if q.get("answer") in ("NO", "UNKNOWN")]
+    if risk_nos or risk_factors:
+        lines += ["", "=== CRUSHABILITY NO / UNKNOWN ITEMS ==="]
+        for q in risk_nos:
+            lines.append(f"{q['label']}: [{q['answer']}] {q.get('reasoning', '')}")
+        for f in risk_factors:  # legacy schema
+            lines.append(f"{f['label']}: [{f['penalty']}] {f['reasoning']}")
+        lines.append(f"Total NOs (incl. UNKNOWN): {risk_result.get('no_count', risk_result.get('adjusted_nos', 0))}")
 
     # Fisher research evidence — gives the writer real sources to cite in bear case bullets
     fisher_evidence = (fisher_result or {}).get("evidence", "")
@@ -555,13 +622,54 @@ def _format_valuation_section(valuation_result: dict | None) -> list[str]:
     return lines
 
 
+def _format_process_section(munger_result: dict | None,
+                            process_result: dict | None,
+                            risk_result: dict) -> list[str]:
+    """Printed PROCESS SCORECARD block for the formatted thesis."""
+    if not munger_result and not process_result:
+        return []
+    p = process_result or {}
+    lines = ["", "  --- PROCESS SCORECARD ---"]
+    if munger_result:
+        chips = "  ".join(f"{f['key']}:{f['rating']}" for f in munger_result.get("filters", []))
+        lines.append(f"  Munger Filters:  {munger_result.get('pass_count', 0)}/4  [{chips}]")
+    fer = p.get("feroldi")
+    if fer:
+        lines.append(f"  Feroldi Quality: {fer.get('total')}/100  [{fer.get('band', 'N/A')}]")
+    af = p.get("antifragile")
+    if af:
+        lines.append(f"  Anti-Fragile:    {af.get('total')}  [{af.get('band', 'N/A')}]")
+    vs = p.get("vital_signs")
+    if vs:
+        lines.append(f"  Vital Signs:     {vs.get('total')}/10")
+    qs = p.get("quality_screen")
+    if qs:
+        lines.append(f"  Quality Screen:  {qs.get('overall')} overall rank score")
+    st = p.get("stage")
+    if st:
+        lines.append(f"  Stage:           {st.get('stage_number')} - {st.get('stage_label')}  "
+                     f"(alloc {st.get('allocation_guidance')}, cap {st.get('stage_cap_pct')}%)")
+        lines.append(f"  Lynch:           {st.get('lynch_category')}")
+    ps = p.get("position_sizing") or {}
+    if ps:
+        lines.append(f"  Position Sizing: crushability {ps.get('crushability_pct')}% -> "
+                     f"final {ps.get('final_pct')}%")
+        for note in ps.get("notes", []):
+            lines.append(f"    ! {note}")
+    if risk_result.get("price_veto"):
+        lines.append("  Price Veto:      ACTIVE (operating earnings yield < 5%)")
+    return lines
+
+
 def _format_thesis(profile: dict, bmp_result: dict,
                    fisher_result: dict | None, selection_result: dict | None,
                    risk_result: dict, sections: dict, today_str: str,
                    valuation_result: dict | None = None,
                    industry_result: dict | None = None,
                    similar_result: list | None = None,
-                   horizon: dict | None = None) -> str:
+                   horizon: dict | None = None,
+                   munger_result: dict | None = None,
+                   process_result: dict | None = None) -> str:
     name    = profile.get("name", "N/A")
     ticker  = profile.get("ticker", "N/A")
     roe     = profile.get("roe")
@@ -612,6 +720,7 @@ def _format_thesis(profile: dict, bmp_result: dict,
         f"  Risk Category:   {category} - Position Size: {pos_pct}%",
         f"  Conviction:      {conviction}",
     ]
+    lines += _format_process_section(munger_result, process_result, risk_result)
     lines += _format_valuation_section(valuation_result)
     lines += [
         "",
@@ -727,7 +836,9 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
           valuation_result: dict | None = None,
           industry_result: dict | None = None,
           similar_result: list | None = None,
-          horizon: dict | None = None) -> tuple[str, str]:
+          horizon: dict | None = None,
+          munger_result: dict | None = None,
+          process_result: dict | None = None) -> tuple[str, str]:
     Path("data/theses").mkdir(parents=True, exist_ok=True)
 
     safe_ticker = ticker.replace(".", "_")
@@ -787,6 +898,13 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
                 "alloc_label":   risk_result.get("alloc_label"),
                 "conviction":    risk_result.get("conviction"),
                 "position_pct":  risk_result.get("position_pct"),
+                "questions":     risk_result.get("questions", []),
+                "no_count":      risk_result.get("no_count"),
+                "unknown_count": risk_result.get("unknown_count"),
+                "crushability_pct": risk_result.get("crushability_pct"),
+                "stage_cap_pct": risk_result.get("stage_cap_pct"),
+                "price_veto":    risk_result.get("price_veto"),
+                "sizing_notes":  risk_result.get("sizing_notes", []),
                 "base_nos":      risk_result.get("base_nos"),
                 "total_penalty": risk_result.get("total_penalty"),
                 "adjusted_nos":  risk_result.get("adjusted_nos"),
@@ -794,6 +912,15 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
                 "summary":       risk_result.get("summary"),
                 "penalty_floors": risk_result.get("penalty_floors", []),
             },
+            "munger": munger_result if munger_result else None,
+            "process": {
+                "feroldi":        process_result.get("feroldi"),
+                "antifragile":    process_result.get("antifragile"),
+                "vital_signs":    process_result.get("vital_signs"),
+                "quality_screen": process_result.get("quality_screen"),
+                "stage":          process_result.get("stage"),
+                "position_sizing": process_result.get("position_sizing"),
+            } if process_result else None,
         },
         "judge_flags": judge_flags or {},
         "valuation": valuation_result if valuation_result and valuation_result.get("available") else None,
@@ -839,11 +966,34 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
 
 # -- Entry point ---------------------------------------------------------------
 
+def _apply_process_guardrails(sections: dict, risk_result: dict,
+                              process_result: dict | None) -> None:
+    """Deterministic guardrail: downgrade INVEST when the process forbids it."""
+    if sections.get("DECISION") != "INVEST":
+        return
+    reasons = []
+    af = (process_result or {}).get("antifragile") or {}
+    if af.get("total") is not None and af["total"] < 7:
+        reasons.append(f"Anti-Fragile {af['total']} < 7 (process: IGNORE)")
+    if (risk_result.get("category") or "").upper() in ("GLASS BOTTLE", "EGG"):
+        reasons.append(f"Crushability category {risk_result['category']}")
+    if risk_result.get("price_veto"):
+        reasons.append("price veto — operating earnings yield < 5%")
+    if reasons:
+        sections["DECISION"] = "WATCHLIST"
+        sections["DECISION_RATIONALE"] = (
+            sections.get("DECISION_RATIONALE", "").strip()
+            + f" [Process guardrail: downgraded INVEST -> WATCHLIST — {'; '.join(reasons)}]"
+        ).strip()
+
+
 def run(profile: dict, bmp_result: dict,
         fisher_result: dict | None, selection_result: dict | None,
         risk_result: dict, valuation_result: dict | None = None,
         industry_result: dict | None = None,
-        similar_result: list | None = None) -> dict:
+        similar_result: list | None = None,
+        munger_result: dict | None = None,
+        process_result: dict | None = None) -> dict:
     """
     Write and save the investment thesis.
     Always runs regardless of prior stage verdicts.
@@ -857,9 +1007,11 @@ def run(profile: dict, bmp_result: dict,
     context  = _build_context(
         profile, bmp_result, fisher_result, selection_result, risk_result,
         valuation_result, industry_result, similar_result,
+        munger_result, process_result,
     )
     raw      = _write_thesis_sections(context)
     sections = _parse_sections(raw)
+    _apply_process_guardrails(sections, risk_result, process_result)
 
     print(f"  [Thesis] Writing short-term and medium-term horizons...")
     horizon_raw = _write_horizon_sections(context, sections)
@@ -869,11 +1021,13 @@ def run(profile: dict, bmp_result: dict,
         profile, bmp_result, fisher_result, selection_result,
         risk_result, sections, today_str, valuation_result,
         industry_result, similar_result, horizon,
+        munger_result, process_result,
     )
 
     print(formatted)
 
-    from agents.judge import check_bull_bear_balance, check_thesis_coherence, print_judge
+    from agents.judge import (check_bull_bear_balance, check_thesis_coherence,
+                              check_process_consistency, print_judge)
 
     bear_r = check_bull_bear_balance(
         company, [sections["BEAR_1"], sections["BEAR_2"], sections["BEAR_3"]]
@@ -887,6 +1041,9 @@ def run(profile: dict, bmp_result: dict,
     )
     print_judge(coherence_r, company)
 
+    process_r = check_process_consistency(process_result, risk_result)
+    print_judge(process_r, company)
+
     # Option #8 -- collect all judge flags for audit trail in JSON
     judge_flags: dict = {}
     if bmp_result.get("judge"):
@@ -897,13 +1054,15 @@ def run(profile: dict, bmp_result: dict,
         judge_flags["score_justification_selection"] = selection_result["judge"].asdict()
     if risk_result.get("judge"):
         judge_flags["cross_stage_consistency"] = risk_result["judge"].asdict()
-    judge_flags["bull_bear_balance"]  = bear_r.asdict()
-    judge_flags["thesis_coherence"]   = coherence_r.asdict()
+    judge_flags["bull_bear_balance"]    = bear_r.asdict()
+    judge_flags["thesis_coherence"]     = coherence_r.asdict()
+    judge_flags["process_consistency"]  = process_r.asdict()
 
     json_path, txt_path = _save(
         ticker, today_str, profile, bmp_result, fisher_result,
         selection_result, risk_result, sections, formatted, judge_flags,
         valuation_result, industry_result, similar_result, horizon,
+        munger_result, process_result,
     )
 
     print(f"  [Thesis] Saved: {json_path}")

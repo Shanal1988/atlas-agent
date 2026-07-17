@@ -148,8 +148,22 @@ def _fetch_fmp_data(ticker: str) -> dict | None:
     r = ratios[0] if ratios else {}
     pe = r.get("priceToEarningsRatio")
     roe = r.get("returnOnEquity")
+    ps = r.get("priceToSalesRatio")
+
+    # 52-week range from profile "range" string, e.g. "164.08-260.10"
+    week52_low, week52_high = None, None
+    try:
+        rng = p.get("range") or ""
+        if "-" in rng:
+            lo, hi = rng.rsplit("-", 1)
+            week52_low, week52_high = float(lo), float(hi)
+    except (ValueError, AttributeError):
+        pass
 
     return {
+        "ps_ratio":             round(ps, 2) if ps else None,
+        "week52_low":           week52_low,
+        "week52_high":          week52_high,
         "name":                 p.get("companyName"),
         "ticker":               p.get("symbol"),
         "exchange":             p.get("exchange"),
@@ -317,6 +331,180 @@ def _revenue_cagr(revenues: list) -> float | None:
     if oldest <= 0:
         return None
     return round((newest / oldest) ** (1 / n) - 1, 4)
+
+
+# -- Extended profile fields (process-scoring frameworks) ----------------------
+
+def _history_cagr(values: list) -> float | None:
+    """CAGR of a newest-first list of positive numbers."""
+    vals = [v for v in values if isinstance(v, (int, float)) and v > 0]
+    if len(vals) < 2:
+        return None
+    newest, oldest = vals[0], vals[-1]
+    n = len(vals) - 1
+    return round((newest / oldest) ** (1 / n) - 1, 4)
+
+
+def _first_key(row: dict, *keys):
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _fetch_extended_fmp(ticker: str) -> dict:
+    """Extended fields for process-scoring frameworks (FMP path). All nullable."""
+    ext = {}
+
+    income5 = _fmp("/income-statement", {"symbol": ticker, "limit": 5}) or []
+    if income5:
+        latest = income5[0]
+        rev = latest.get("revenue")
+        gp  = latest.get("grossProfit")
+        ext["gross_profit"] = gp
+        if gp is not None and rev:
+            ext["gross_margin"] = round(gp / rev, 4)
+        ext["net_income"] = latest.get("netIncome")
+        ext["sm_expense"] = _first_key(latest, "sellingAndMarketingExpenses") or None  # 0 = not broken out
+        ext["net_income_history"] = [
+            {"year": str(r.get("fiscalYear") or r.get("calendarYear") or "?"),
+             "net_income": r.get("netIncome")}
+            for r in income5
+        ]
+        ext["eps_history"] = [
+            {"year": str(r.get("fiscalYear") or r.get("calendarYear") or "?"),
+             "eps": _first_key(r, "epsDiluted", "epsdiluted", "eps")}
+            for r in income5
+        ]
+        shares = [_first_key(r, "weightedAverageShsOutDil", "weightedAverageShsOut")
+                  for r in income5]
+        ext["shares_history"] = [
+            {"year": str(r.get("fiscalYear") or r.get("calendarYear") or "?"), "shares": s}
+            for r, s in zip(income5, shares)
+        ]
+        ext["dilution_cagr"] = _history_cagr(shares)
+
+    bs = _fmp("/balance-sheet-statement", {"symbol": ticker, "limit": 1}) or []
+    if bs:
+        row = bs[0]
+        total_debt = row.get("totalDebt")
+        cash = _first_key(row, "cashAndShortTermInvestments", "cashAndCashEquivalents")
+        ext["total_debt"] = total_debt
+        ext["cash_and_equivalents"] = cash
+        net_debt = row.get("netDebt")
+        if net_debt is None and total_debt is not None and cash is not None:
+            net_debt = total_debt - cash
+        ext["net_debt"] = net_debt
+
+    quarters = _fmp("/income-statement", {"symbol": ticker, "period": "quarter", "limit": 8}) or []
+    ext["revenue_quarterly"] = [
+        {"period": f"{r.get('period','?')} {r.get('fiscalYear') or r.get('calendarYear') or '?'}",
+         "revenue": r.get("revenue")}
+        for r in quarters
+    ] or None
+
+    change = _fmp("/stock-price-change", {"symbol": ticker}) or []
+    if change and change[0].get("1Y") is not None:
+        ext["week52_change_pct"] = round(change[0]["1Y"] / 100, 4)
+
+    return {k: v for k, v in ext.items() if v is not None}
+
+
+def _fetch_extended_yf(ticker: str) -> dict:
+    """Extended fields for process-scoring frameworks (yfinance path). All nullable."""
+    ext = {}
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info or {}
+    except Exception:
+        return ext
+
+    ext["total_debt"] = info.get("totalDebt")
+    ext["cash_and_equivalents"] = info.get("totalCash")
+    if ext["total_debt"] is not None and ext["cash_and_equivalents"] is not None:
+        ext["net_debt"] = ext["total_debt"] - ext["cash_and_equivalents"]
+    ps = info.get("priceToSalesTrailing12Months")
+    ext["ps_ratio"] = round(ps, 2) if ps else None
+    ext["week52_high"] = info.get("fiftyTwoWeekHigh")
+    ext["week52_low"] = info.get("fiftyTwoWeekLow")
+    ext["week52_change_pct"] = info.get("52WeekChange")
+    ext["net_income"] = info.get("netIncomeToCommon")
+
+    try:
+        fin = t.financials
+        if fin is not None and not fin.empty:
+            cols = list(fin.columns)[:5]
+
+            def row_hist(row_names, out_key):
+                for name in row_names:
+                    if name in fin.index:
+                        return [
+                            {"year": str(c.year), out_key: _safe_float_val(fin, name, c)}
+                            for c in cols
+                        ]
+                return None
+
+            ext["net_income_history"] = row_hist(("Net Income",), "net_income")
+            if ext["net_income"] is None and ext["net_income_history"]:
+                ext["net_income"] = ext["net_income_history"][0].get("net_income")
+            ext["eps_history"] = row_hist(("Diluted EPS", "Basic EPS"), "eps")
+            shares_hist = row_hist(("Diluted Average Shares", "Basic Average Shares"), "shares")
+            ext["shares_history"] = shares_hist
+            if shares_hist:
+                ext["dilution_cagr"] = _history_cagr([r.get("shares") for r in shares_hist])
+
+            gp = _safe_float_val(fin, "Gross Profit", cols[0]) if "Gross Profit" in fin.index else None
+            rev = _safe_float_val(fin, "Total Revenue", cols[0]) if "Total Revenue" in fin.index else None
+            ext["gross_profit"] = gp
+            if gp is not None and rev:
+                ext["gross_margin"] = round(gp / rev, 4)
+            for name in ("Selling And Marketing Expense", "Selling General And Administration"):
+                if name in fin.index:
+                    ext["sm_expense"] = _safe_float_val(fin, name, cols[0])
+                    break
+    except Exception:
+        pass
+
+    try:
+        qfin = t.quarterly_financials
+        if qfin is not None and not qfin.empty and "Total Revenue" in qfin.index:
+            ext["revenue_quarterly"] = [
+                {"period": str(c.date()), "revenue": _safe_float_val(qfin, "Total Revenue", c)}
+                for c in list(qfin.columns)[:8]
+            ]
+    except Exception:
+        pass
+
+    return {k: v for k, v in ext.items() if v is not None}
+
+
+_EXTENDED_FIELDS = (
+    "gross_profit", "gross_margin", "net_income", "net_income_history", "eps_history",
+    "total_debt", "cash_and_equivalents", "net_debt", "shares_history", "dilution_cagr",
+    "week52_high", "week52_low", "week52_change_pct", "ps_ratio", "sm_expense",
+    "revenue_quarterly",
+)
+
+
+def _enrich_profile(profile: dict, ticker: str, is_us: bool) -> None:
+    """Fill extended fields in-place: primary source first, other source for gaps."""
+    try:
+        ext = _fetch_extended_fmp(ticker) if is_us else _fetch_extended_yf(ticker)
+    except Exception:
+        ext = {}
+    for k, v in ext.items():
+        if profile.get(k) is None:
+            profile[k] = v
+
+    if any(profile.get(f) is None for f in _EXTENDED_FIELDS):
+        try:
+            fallback = _fetch_extended_yf(ticker) if is_us else _fetch_extended_fmp(ticker)
+        except Exception:
+            fallback = {}
+        for k, v in fallback.items():
+            if profile.get(k) is None:
+                profile[k] = v
 
 
 # -- ROCE / ROIC computation --------------------------------------------------
@@ -833,6 +1021,10 @@ def run(company_name: str) -> dict:
     profile["roic_avg"]     = roce_roic.get("roic_avg")
     profile["roce_trend"]   = roce_roic.get("roce_trend")
     profile["roic_trend"]   = roce_roic.get("roic_trend")
+
+    # Extended fields for process-scoring frameworks (all nullable)
+    print("        Fetching extended financial fields...")
+    _enrich_profile(profile, ticker, _is_us_listed(ticker))
 
     _print_profile(profile)
 

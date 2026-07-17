@@ -209,9 +209,9 @@ def check_thesis_coherence(
     flags: list = []
     severity     = "INFO"
 
-    # Hard rule: Egg = no position, INVEST is impossible
-    if category == "Egg" and decision == "INVEST":
-        flags.append("Egg category cannot be INVEST -- position size is 0%.")
+    # Hard rule: Glass Bottle / Egg = no position, INVEST is impossible
+    if category in ("Glass Bottle", "Egg") and decision == "INVEST":
+        flags.append(f"{category} category cannot be INVEST -- position size is 0%.")
         severity = "FAIL"
 
     # Hard rule: BMP REJECT + INVEST is contradictory
@@ -347,11 +347,11 @@ def check_cross_stage_consistency(
             f"(Fisher {fisher_total}/15, Selection {sel_score}/8)."
         )
 
-    # Borderline Diamond (close to Gold threshold)
-    if category == "Diamond" and base_nos >= 4:
+    # Borderline Diamond (close to Marble threshold)
+    if category == "Diamond" and base_nos >= 5:
         info_flags.append(
             f"Borderline Diamond ({base_nos} NOs) -- "
-            f"1 more NO would move to Gold (4-6%)."
+            f"1 more NO would move to Marble (3-5%)."
         )
 
     # All risk factors scored zero -- may be optimistic
@@ -369,5 +369,73 @@ def check_cross_stage_consistency(
         judge="cross_stage_consistency",
         passed=not bool(warn_flags),
         severity=severity,
+        flags=all_flags,
+    )
+
+
+# -- Judge 5 -- Process Consistency ---------------------------------------------
+
+def check_process_consistency(
+    process_result: dict | None,
+    risk_result: dict,
+) -> JudgeResult:
+    """Judge 5 -- rule-based checks that process scores and sizing agree, zero tokens."""
+    if not process_result:
+        return JudgeResult(judge="process_consistency", passed=True, severity="INFO")
+
+    fail_flags: list = []
+    warn_flags: list = []
+
+    af       = process_result.get("antifragile") or {}
+    feroldi  = process_result.get("feroldi") or {}
+    vitals   = process_result.get("vital_signs") or {}
+    stage    = process_result.get("stage") or {}
+    ps       = process_result.get("position_sizing") or {}
+    final    = ps.get("final_pct")
+    cap      = ps.get("stage_cap_pct")
+    category = risk_result.get("category", "")
+
+    # Hard rules: sizing must respect the process
+    if af.get("total") is not None and af["total"] < 7 and final not in (None, 0, 0.0):
+        fail_flags.append(
+            f"Anti-Fragile {af['total']} < 7 (IGNORE) but final position is {final}% -- must be 0%."
+        )
+    if category in ("Glass Bottle", "Egg") and (risk_result.get("position_pct") or 0) > 0:
+        fail_flags.append(
+            f"{category} category but position size {risk_result.get('position_pct')}% -- must be 0%."
+        )
+    if final is not None and cap is not None and final > cap:
+        fail_flags.append(
+            f"Final position {final}% exceeds stage cap {cap}% -- sizing not applied."
+        )
+
+    # Soft rules: framework agreement
+    if stage.get("do_invest") is False and (final or 0) > 0:
+        warn_flags.append(
+            f"Stage {stage.get('stage_number')} ({stage.get('stage_label')}) says do not "
+            f"invest, but final position is {final}%."
+        )
+    f_total = feroldi.get("total")
+    v_total = vitals.get("total")
+    if f_total is not None and v_total is not None:
+        if f_total >= 80 and v_total <= 4:
+            warn_flags.append(
+                f"Feroldi {f_total}/100 (high) vs Vital Signs {v_total}/10 (low) -- "
+                "frameworks disagree; verify manually."
+            )
+        elif f_total <= 40 and v_total >= 8:
+            warn_flags.append(
+                f"Feroldi {f_total}/100 (low) vs Vital Signs {v_total}/10 (high) -- "
+                "frameworks disagree; verify manually."
+            )
+
+    all_flags = fail_flags + warn_flags
+    if not all_flags:
+        return JudgeResult(judge="process_consistency", passed=True, severity="INFO")
+
+    return JudgeResult(
+        judge="process_consistency",
+        passed=not bool(fail_flags),
+        severity="FAIL" if fail_flags else "WARN",
         flags=all_flags,
     )

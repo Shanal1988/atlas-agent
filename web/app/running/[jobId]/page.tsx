@@ -9,15 +9,17 @@ import { ProgressTracker } from "@/components/ProgressTracker";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 const DEFAULT_STAGES = [
-  { key: "discovery",  label: "Company Discovery",  order: 1 },
-  { key: "industry",   label: "Industry Analysis",  order: 2 },
-  { key: "bmp",        label: "BMP Gate",           order: 3 },
-  { key: "fisher",     label: "Fisher Analysis",    order: 4 },
-  { key: "selection",  label: "Stock Selection",    order: 5 },
-  { key: "risk",       label: "Risk Scoring",       order: 6 },
-  { key: "valuation",  label: "Valuation",          order: 7 },
-  { key: "similar",    label: "Similar Companies",  order: 8 },
-  { key: "thesis",     label: "Thesis Writer",      order: 9 },
+  { key: "discovery",  label: "Company Discovery",   order: 1 },
+  { key: "industry",   label: "Industry Analysis",   order: 2 },
+  { key: "munger",     label: "Munger Four Filters", order: 3 },
+  { key: "bmp",        label: "BMP Gate",            order: 4 },
+  { key: "fisher",     label: "Fisher Analysis",     order: 5 },
+  { key: "selection",  label: "Stock Selection",     order: 6 },
+  { key: "valuation",  label: "Valuation",           order: 7 },
+  { key: "process",    label: "Process Scorecards",  order: 8 },
+  { key: "risk",       label: "Risk Scoring",        order: 9 },
+  { key: "similar",    label: "Similar Companies",   order: 10 },
+  { key: "thesis",     label: "Thesis Writer",       order: 11 },
 ];
 
 export default function RunningPage() {

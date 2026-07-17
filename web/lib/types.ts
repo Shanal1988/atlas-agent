@@ -79,11 +79,31 @@ export interface RiskFactor {
   reasoning: string;
 }
 
+export interface RiskQuestion {
+  key: string;
+  label: string;
+  answer: "YES" | "NO" | "UNKNOWN";
+  method: "computed" | "llm";
+  reasoning: string;
+}
+
 export interface RiskScore {
-  category: "Diamond" | "Gold" | "Silver" | "Bronze" | "Glass" | "Egg";
+  // New Crushability categories + legacy names (old analyses)
+  category:
+    | "Diamond" | "Marble" | "Jawbreaker" | "Coconut" | "Glass Bottle" | "Egg"
+    | "Gold" | "Silver" | "Bronze" | "Glass";
   alloc_label: string;
   conviction: "HIGH" | "MEDIUM" | "LOW";
   position_pct: number;
+  // Crushability fields (absent on old analyses)
+  questions?: RiskQuestion[];
+  no_count?: number;
+  unknown_count?: number;
+  crushability_pct?: number;
+  stage_cap_pct?: number | null;
+  price_veto?: boolean;
+  sizing_notes?: string[];
+  // Legacy fields
   base_nos: number;
   total_penalty: number;
   adjusted_nos: number;
@@ -92,11 +112,157 @@ export interface RiskScore {
   penalty_floors: string[];
 }
 
+// ── Process scorecards (investing-process frameworks) ─────────────────────────
+
+export interface MungerFilter {
+  key: string;
+  label: string;
+  rating: "YES" | "TBC" | "NO";
+  reasoning: string;
+  method: "computed" | "llm";
+}
+
+export interface MungerScore {
+  filters: MungerFilter[];
+  pass_count: number;
+  verdict: string;
+}
+
+export interface FeroldiItem {
+  key: string;
+  label: string;
+  score: number;
+  max?: number;
+  method: "computed" | "llm" | "unavailable";
+  value?: number;
+  reasoning: string;
+}
+
+export interface FeroldiSection {
+  key: string;
+  label: string;
+  score: number;
+  max: number;
+  items: FeroldiItem[];
+  raw_max?: number;
+  raw_score?: number;
+}
+
+export interface FeroldiScore {
+  sections: FeroldiSection[];
+  pre_gauntlet: number;
+  pre_gauntlet_raw: number;
+  max_effective: number;
+  gauntlet_items: FeroldiItem[];
+  gauntlet: number;
+  total: number;
+  max: number;
+  band: string;
+  data_gaps: string[];
+}
+
+export interface AntiFragileItem {
+  key: string;
+  label: string;
+  points: number;
+  min: number;
+  max: number;
+  source: string;
+  reasoning: string;
+}
+
+export interface AntiFragileScore {
+  items: AntiFragileItem[];
+  total: number;
+  band: string;
+}
+
+export interface VitalSignItem {
+  key: string;
+  label: string;
+  score: number;
+  reasoning: string;
+}
+
+export interface VitalSignsScore {
+  items: VitalSignItem[];
+  total: number;
+  max: number;
+  closing: {
+    sane_valuation: string;
+    opportunity_cost: string;
+  };
+}
+
+export interface QualityScreenItem {
+  key: string;
+  label: string;
+  score: number;
+  max: number;
+  method: "computed" | "llm" | "llm_estimate" | "unavailable";
+  proxy?: boolean;
+  value?: number;
+  reasoning: string;
+}
+
+export interface QualityScreenSection {
+  items: QualityScreenItem[];
+  total: number;
+  max: number;
+}
+
+export interface QualityScreenScore {
+  qualitative: QualityScreenSection;
+  quantitative: QualityScreenSection;
+  valuation: QualityScreenSection;
+  overall: number;
+  data_gaps: string[];
+}
+
+export interface StageScore {
+  stage_number: number;
+  stage_label: string;
+  risk: string;
+  profits: string;
+  return_potential: string;
+  allocation_guidance: string;
+  do_invest: boolean;
+  stage_cap_pct: number;
+  lynch_category: string;
+  lynch_allocation: string;
+  lynch_attributes: string;
+  window: [number, number];
+  pre_classification: string;
+  reasoning: string;
+}
+
+export interface PositionSizing {
+  stage_cap_pct: number;
+  antifragile_ok: boolean;
+  feroldi_band: string;
+  price_veto: boolean;
+  active_oey: number | null;
+  crushability_pct: number | null;
+  final_pct: number | null;
+  notes: string[];
+}
+
+export interface ProcessScores {
+  feroldi: FeroldiScore;
+  antifragile: AntiFragileScore;
+  vital_signs: VitalSignsScore;
+  quality_screen: QualityScreenScore;
+  stage: StageScore;
+  position_sizing: PositionSizing;
+}
+
 export interface Scores {
   bmp: BMPScore;
   fisher: FisherScore;
   selection: SelectionScore;
   risk: RiskScore;
+  munger?: MungerScore | null;
+  process?: ProcessScores | null;
 }
 
 export interface JudgeFlag {
