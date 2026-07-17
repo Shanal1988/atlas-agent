@@ -386,8 +386,6 @@ def check_process_consistency(
     fail_flags: list = []
     warn_flags: list = []
 
-    af       = process_result.get("antifragile") or {}
-    feroldi  = process_result.get("feroldi") or {}
     vitals   = process_result.get("vital_signs") or {}
     stage    = process_result.get("stage") or {}
     ps       = process_result.get("position_sizing") or {}
@@ -396,10 +394,6 @@ def check_process_consistency(
     category = risk_result.get("category", "")
 
     # Hard rules: sizing must respect the process
-    if af.get("total") is not None and af["total"] < 7 and final not in (None, 0, 0.0):
-        fail_flags.append(
-            f"Anti-Fragile {af['total']} < 7 (IGNORE) but final position is {final}% -- must be 0%."
-        )
     if category in ("Glass Bottle", "Egg") and (risk_result.get("position_pct") or 0) > 0:
         fail_flags.append(
             f"{category} category but position size {risk_result.get('position_pct')}% -- must be 0%."
@@ -415,19 +409,6 @@ def check_process_consistency(
             f"Stage {stage.get('stage_number')} ({stage.get('stage_label')}) says do not "
             f"invest, but final position is {final}%."
         )
-    f_total = feroldi.get("total")
-    v_total = vitals.get("total")
-    if f_total is not None and v_total is not None:
-        if f_total >= 80 and v_total <= 4:
-            warn_flags.append(
-                f"Feroldi {f_total}/100 (high) vs Vital Signs {v_total}/10 (low) -- "
-                "frameworks disagree; verify manually."
-            )
-        elif f_total <= 40 and v_total >= 8:
-            warn_flags.append(
-                f"Feroldi {f_total}/100 (low) vs Vital Signs {v_total}/10 (high) -- "
-                "frameworks disagree; verify manually."
-            )
 
     all_flags = fail_flags + warn_flags
     if not all_flags:

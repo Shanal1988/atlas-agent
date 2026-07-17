@@ -176,20 +176,6 @@ def _process_scores_block(munger_result: dict | None,
                      f"({ratings}) — {munger_result.get('verdict', 'N/A')}")
 
     p = process_result or {}
-    fer = p.get("feroldi")
-    if fer:
-        secs = ", ".join(f"{s['label']} {s['score']}/{s['max']}" for s in fer.get("sections", []))
-        lines.append(f"Feroldi Quality Score: {fer.get('total')}/100 [{fer.get('band', 'N/A')}] "
-                     f"(pre-Gauntlet {fer.get('pre_gauntlet')}, Gauntlet {fer.get('gauntlet')}; {secs})")
-        deductions = [g for g in fer.get("gauntlet_items", []) if g.get("score", 0) < 0]
-        if deductions:
-            worst = sorted(deductions, key=lambda g: g["score"])[:3]
-            lines.append("  Top Gauntlet deductions: "
-                         + "; ".join(f"{g['label']} ({g['score']})" for g in worst))
-    af = p.get("antifragile")
-    if af:
-        lines.append(f"Anti-Fragile Score: {af.get('total')} (range -7..17) [{af.get('band', 'N/A')}]"
-                     + ("  — BELOW 7: process says IGNORE" if (af.get("total") or 0) < 7 else ""))
     vs = p.get("vital_signs")
     if vs:
         weakest = sorted(vs.get("items", []), key=lambda i: i["score"])[:2]
@@ -633,12 +619,6 @@ def _format_process_section(munger_result: dict | None,
     if munger_result:
         chips = "  ".join(f"{f['key']}:{f['rating']}" for f in munger_result.get("filters", []))
         lines.append(f"  Munger Filters:  {munger_result.get('pass_count', 0)}/4  [{chips}]")
-    fer = p.get("feroldi")
-    if fer:
-        lines.append(f"  Feroldi Quality: {fer.get('total')}/100  [{fer.get('band', 'N/A')}]")
-    af = p.get("antifragile")
-    if af:
-        lines.append(f"  Anti-Fragile:    {af.get('total')}  [{af.get('band', 'N/A')}]")
     vs = p.get("vital_signs")
     if vs:
         lines.append(f"  Vital Signs:     {vs.get('total')}/10")
@@ -914,8 +894,6 @@ def _save(ticker: str, today_str: str, profile: dict, bmp_result: dict,
             },
             "munger": munger_result if munger_result else None,
             "process": {
-                "feroldi":        process_result.get("feroldi"),
-                "antifragile":    process_result.get("antifragile"),
                 "vital_signs":    process_result.get("vital_signs"),
                 "quality_screen": process_result.get("quality_screen"),
                 "stage":          process_result.get("stage"),
@@ -972,9 +950,6 @@ def _apply_process_guardrails(sections: dict, risk_result: dict,
     if sections.get("DECISION") != "INVEST":
         return
     reasons = []
-    af = (process_result or {}).get("antifragile") or {}
-    if af.get("total") is not None and af["total"] < 7:
-        reasons.append(f"Anti-Fragile {af['total']} < 7 (process: IGNORE)")
     if (risk_result.get("category") or "").upper() in ("GLASS BOTTLE", "EGG"):
         reasons.append(f"Crushability category {risk_result['category']}")
     if risk_result.get("price_veto"):

@@ -128,55 +128,6 @@ export interface MungerScore {
   verdict: string;
 }
 
-export interface FeroldiItem {
-  key: string;
-  label: string;
-  score: number;
-  max?: number;
-  method: "computed" | "llm" | "unavailable";
-  value?: number;
-  reasoning: string;
-}
-
-export interface FeroldiSection {
-  key: string;
-  label: string;
-  score: number;
-  max: number;
-  items: FeroldiItem[];
-  raw_max?: number;
-  raw_score?: number;
-}
-
-export interface FeroldiScore {
-  sections: FeroldiSection[];
-  pre_gauntlet: number;
-  pre_gauntlet_raw: number;
-  max_effective: number;
-  gauntlet_items: FeroldiItem[];
-  gauntlet: number;
-  total: number;
-  max: number;
-  band: string;
-  data_gaps: string[];
-}
-
-export interface AntiFragileItem {
-  key: string;
-  label: string;
-  points: number;
-  min: number;
-  max: number;
-  source: string;
-  reasoning: string;
-}
-
-export interface AntiFragileScore {
-  items: AntiFragileItem[];
-  total: number;
-  band: string;
-}
-
 export interface VitalSignItem {
   key: string;
   label: string;
@@ -238,8 +189,6 @@ export interface StageScore {
 
 export interface PositionSizing {
   stage_cap_pct: number;
-  antifragile_ok: boolean;
-  feroldi_band: string;
   price_veto: boolean;
   active_oey: number | null;
   crushability_pct: number | null;
@@ -248,8 +197,6 @@ export interface PositionSizing {
 }
 
 export interface ProcessScores {
-  feroldi: FeroldiScore;
-  antifragile: AntiFragileScore;
   vital_signs: VitalSignsScore;
   quality_screen: QualityScreenScore;
   stage: StageScore;

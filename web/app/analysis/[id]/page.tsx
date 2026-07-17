@@ -22,8 +22,6 @@ import { BMPScoreTable } from "@/components/BMPScoreTable";
 import { FisherScoreTable } from "@/components/FisherScoreTable";
 import { FinancialStatementsPanel } from "@/components/FinancialStatements";
 import { MungerFilters } from "@/components/MungerFilters";
-import { FeroldiScoreCard } from "@/components/FeroldiScoreCard";
-import { AntiFragileGauge } from "@/components/AntiFragileGauge";
 import { VitalSignsTable } from "@/components/VitalSignsTable";
 import { QualityScreenTable } from "@/components/QualityScreenTable";
 import { StageBadge } from "@/components/StageBadge";
@@ -171,9 +169,6 @@ export default function AnalysisPage() {
 
           <RiskBadge risk={scores.risk} />
 
-          {scores.process?.antifragile && (
-            <AntiFragileGauge antifragile={scores.process.antifragile} />
-          )}
           {scores.process?.stage && <StageBadge stage={scores.process.stage} />}
 
           <ValuationTable valuation={valuation!} shares={profile.market_cap / profile.current_price} />
@@ -194,7 +189,6 @@ export default function AnalysisPage() {
         <FisherRadar fisher={fisher} />
 
         {/* Process scorecards (investing-process frameworks) */}
-        {scores.process?.feroldi && <FeroldiScoreCard feroldi={scores.process.feroldi} />}
         {scores.process && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {scores.process.vital_signs && (

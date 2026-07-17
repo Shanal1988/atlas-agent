@@ -280,11 +280,7 @@ def _build_context(profile: dict, bmp_result: dict,
     if selection_result:
         lines.append(f"Selection Score:   {selection_result.get('score', 0)}/8   Verdict: {selection_result.get('verdict', 'N/A')}")
     if process_result:
-        f = process_result.get("feroldi") or {}
-        af = process_result.get("antifragile") or {}
         st = process_result.get("stage") or {}
-        lines.append(f"Feroldi Quality:   {f.get('total')}/100 ({f.get('band')})")
-        lines.append(f"Anti-Fragile:      {af.get('total')} ({af.get('band')})")
         lines.append(f"Stage:             {st.get('stage_number')} - {st.get('stage_label')}")
     return "\n".join(lines)
 
@@ -398,9 +394,6 @@ def run(profile: dict, bmp_result: dict,
         sizing_notes.append(f"Capped at {stage_cap}% by Investment Stage framework "
                             f"(crushability suggested {crushability_pct}%).")
         final_pct = stage_cap
-    if ps.get("antifragile_ok") is False:
-        sizing_notes.append("Anti-Fragile score < 7 — process says IGNORE; position forced to 0%.")
-        final_pct = 0.0
     if price_veto:
         sizing_notes.append(f"Price veto: operating earnings yield {oey['active_oey']}% "
                             "< 5% — do not buy until Mr. Market offers a better price.")

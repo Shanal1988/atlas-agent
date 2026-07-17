@@ -1,39 +1,16 @@
 # Stage - Process Scoring (user's investing process frameworks)
 #
-# Orchestrates: Feroldi Quality Score (+ derived Anti-Fragile) -> Ten Vital
-# Signs -> Quality Score Screen -> Investment Stage + Lynch classification.
+# Orchestrates: Ten Vital Signs -> Quality Score Screen ->
+# Investment Stage + Lynch classification.
 # Computes the position-sizing synthesis inputs consumed by risk_scoring:
-# stage_cap_pct, antifragile_ok, feroldi_band, price_veto.
+# stage_cap_pct, price_veto.
 
-from agents import feroldi as feroldi_agent
 from agents import vital_signs as vital_signs_agent
 from agents import quality_screen as quality_screen_agent
 from agents import stage_classifier
 from agents.context import compute_oey
 
 W = 44
-
-
-def _print_feroldi(f: dict, af: dict) -> None:
-    print(f"\n{'=' * W}")
-    print("  ATLAS: FEROLDI QUALITY SCORE")
-    print(f"{'=' * W}")
-    for sec in f["sections"]:
-        print(f"  {sec['label']:<22} {sec['score']:>5} / {sec['max']}")
-    print(f"  {'-' * (W - 4)}")
-    print(f"  Pre-Gauntlet:          {f['pre_gauntlet']} / 100  "
-          f"(raw {f['pre_gauntlet_raw']} / {f['max_effective']})")
-    deductions = [g for g in f["gauntlet_items"] if g["score"] < 0]
-    if deductions:
-        print("  Gauntlet deductions:")
-        for g in deductions:
-            print(f"    {g['label']:<22} {g['score']}")
-    print(f"  Gauntlet:              {f['gauntlet']}")
-    print(f"  TOTAL:                 {f['total']} / 100   [{f['band']}]")
-    if f["data_gaps"]:
-        print(f"  Data gaps (excluded): {', '.join(f['data_gaps'])}")
-    print(f"\n  ANTI-FRAGILE SCORE:    {af['total']}  (range -7..17)   [{af['band']}]")
-    print(f"{'=' * W}\n")
 
 
 def _print_vitals(v: dict) -> None:
@@ -80,9 +57,6 @@ def run(profile: dict, bmp_result: dict | None, fisher_result: dict | None,
     company = profile.get("name") or profile.get("ticker", "Unknown")
     print(f"\n  [Process] Running investing-process scorecards for {company}...")
 
-    feroldi, antifragile = feroldi_agent.run(profile)
-    _print_feroldi(feroldi, antifragile)
-
     vitals = vital_signs_agent.run(profile, bmp_result, fisher_result, valuation_result)
     _print_vitals(vitals)
 
@@ -94,9 +68,6 @@ def run(profile: dict, bmp_result: dict | None, fisher_result: dict | None,
 
     oey = compute_oey(profile)
     notes = []
-    antifragile_ok = antifragile["total"] >= 7
-    if not antifragile_ok:
-        notes.append(f"Anti-Fragile {antifragile['total']} < 7 — process says IGNORE (position forced to 0%).")
     if oey["price_veto"]:
         notes.append(f"Operating earnings yield {oey['active_oey']}% < 5% — price veto (wait for Mr. Market).")
     if not stage["do_invest"]:
@@ -104,8 +75,6 @@ def run(profile: dict, bmp_result: dict | None, fisher_result: dict | None,
 
     position_sizing = {
         "stage_cap_pct": stage["stage_cap_pct"],
-        "antifragile_ok": antifragile_ok,
-        "feroldi_band": feroldi["band"],
         "price_veto": oey["price_veto"],
         "active_oey": oey["active_oey"],
         "crushability_pct": None,   # filled by risk_scoring
@@ -114,8 +83,6 @@ def run(profile: dict, bmp_result: dict | None, fisher_result: dict | None,
     }
 
     return {
-        "feroldi": feroldi,
-        "antifragile": antifragile,
         "vital_signs": vitals,
         "quality_screen": quality,
         "stage": stage,
