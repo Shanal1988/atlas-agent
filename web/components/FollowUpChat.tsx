@@ -144,6 +144,12 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
 
   const BMP_RATING_SCORE: Record<string, number> = { YES: 1, PARTIAL: 0.5, NO: 0 };
 
+  const VALUATION_FIELDS = new Set([
+    "dhandho.lower.iv", "dhandho.higher.iv",
+    "graham.lower", "graham.higher",
+    "dcf.iv", "exp_returns.iv",
+  ]);
+
   function bmpVerdict(score: number): string {
     if (score >= 4) return "STRONG PASS";
     if (score >= 3) return "PASS";
@@ -172,6 +178,7 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
     };
     let bmpAnswers: BMPAnswerOverride[] | null = null;
     let fisherPoints: FisherPointOverride[] | null = null;
+    let valuationOverrides: Record<string, number> | null = null;
     const skipped: string[] = [];
 
     for (const u of updates) {
@@ -228,6 +235,17 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
         }
       }
 
+      // Valuation IV figures: valuation.<subpath> (value in millions)
+      if (u.field.startsWith("valuation.")) {
+        const sub = u.field.slice(10);
+        const value = parseFloat(u.new_value.replace(/,/g, ""));
+        if (VALUATION_FIELDS.has(sub) && Number.isFinite(value) && value > 0) {
+          valuationOverrides ??= { ...(overrides.valuation ?? {}) };
+          valuationOverrides[sub] = value;
+          continue;
+        }
+      }
+
       skipped.push(u.field);
     }
 
@@ -242,6 +260,9 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
     if (fisherPoints) {
       const total = fisherPoints.reduce((s, p) => s + p.score, 0);
       updated.fisher = { points: fisherPoints, total, rating: fisherRating(total) };
+    }
+    if (valuationOverrides) {
+      updated.valuation = valuationOverrides;
     }
 
     try {

@@ -95,6 +95,21 @@ export default function AnalysisPage() {
     mergedThesis = { ...thesis, ...(patch as Partial<typeof thesis>) };
   }
 
+  // Merge valuation IV overrides (flat dot-path map, values in millions)
+  let mergedValuation = valuation;
+  if (valuation && overrides.valuation && Object.keys(overrides.valuation).length) {
+    mergedValuation = structuredClone(valuation);
+    for (const [path, value] of Object.entries(overrides.valuation)) {
+      const parts = path.split(".");
+      let obj: Record<string, unknown> = mergedValuation as unknown as Record<string, unknown>;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (obj[parts[i]] == null) obj[parts[i]] = {};
+        obj = obj[parts[i]] as Record<string, unknown>;
+      }
+      obj[parts[parts.length - 1]] = value;
+    }
+  }
+
   return (
     <div>
       {/* Header */}
@@ -171,13 +186,13 @@ export default function AnalysisPage() {
 
           {scores.process?.stage && <StageBadge stage={scores.process.stage} />}
 
-          <ValuationTable valuation={valuation!} shares={profile.market_cap / profile.current_price} />
+          <ValuationTable valuation={mergedValuation!} shares={profile.market_cap / profile.current_price} />
         </div>
       </div>
 
       {/* Full-width sections */}
       <div className="space-y-6">
-        {valuation?.available && <ValuationChart valuation={valuation} />}
+        {mergedValuation?.available && <ValuationChart valuation={mergedValuation} />}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {profile.revenues?.length > 0 && (

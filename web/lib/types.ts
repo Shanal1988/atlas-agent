@@ -423,6 +423,8 @@ export interface AnalysisOverrides {
     rating: string;
   };
   thesis?: Partial<ThesisSections>;
+  // Flat map of IV overrides, e.g. { "dhandho.lower.iv": 85000 } (values in mn)
+  valuation?: Record<string, number>;
 }
 
 // ── Chat enhancements ─────────────────────────────────────────────────────────

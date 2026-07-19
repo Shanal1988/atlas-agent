@@ -53,6 +53,11 @@ _UPDATE_THESIS_TOOL = {
                     "'thesis.medium_term_outlook', 'thesis.medium_term_milestones'. "
                     "Score changes use 'bmp.answers.<idx>.rating' (value YES/PARTIAL/NO, idx 0-4) or "
                     "'fisher.points.<idx>.score' (value 0, 0.5, 0.75 or 1.0, idx 0-14). "
+                    "Intrinsic-value figures in the valuation table use 'valuation.dhandho.lower.iv', "
+                    "'valuation.dhandho.higher.iv', 'valuation.graham.lower', 'valuation.graham.higher', "
+                    "'valuation.dcf.iv' or 'valuation.exp_returns.iv' — new_value MUST be the TOTAL "
+                    "intrinsic value in MILLIONS of the reporting currency (e.g. '85000' for 85bn), "
+                    "NOT a per-share figure. "
                     "No other fields exist — do not invent field names."
                 ),
             },
@@ -87,6 +92,21 @@ _THESIS_ARRAY_FIELDS = {
 _BMP_RATING_SCORE = {"YES": 1.0, "PARTIAL": 0.5, "NO": 0.0}
 _FISHER_SCORES = {0.0, 0.5, 0.75, 1.0}
 _BULLET_RE = re.compile(r"^\s*(?:[-*•→↑↓!✓◉]|\d+[.)])\s*")
+# Editable intrinsic-value figures (stored as a flat map in overrides.valuation,
+# values are TOTAL IV in millions of the reporting currency)
+_VALUATION_FIELDS = {
+    "dhandho.lower.iv", "dhandho.higher.iv",
+    "graham.lower", "graham.higher",
+    "dcf.iv", "exp_returns.iv",
+}
+
+
+def _parse_valuation_value(value: str) -> Optional[float]:
+    try:
+        v = float(value.replace(",", "").strip())
+    except (ValueError, AttributeError):
+        return None
+    return v if v > 0 else None
 
 
 def _bmp_verdict(score: float) -> str:
@@ -139,7 +159,9 @@ def _invalid_field_msg(field: str) -> str:
         f"Invalid field '{field}'. Valid fields are: "
         + ", ".join(f"thesis.{k}" for k in sorted(_THESIS_KEYS))
         + ", bmp.answers.<idx>.rating (idx 0-4, value YES/PARTIAL/NO), "
-        "fisher.points.<idx>.score (idx 0-14, value 0/0.5/0.75/1.0). "
+        "fisher.points.<idx>.score (idx 0-14, value 0/0.5/0.75/1.0), "
+        + ", ".join(f"valuation.{k}" for k in sorted(_VALUATION_FIELDS))
+        + " (value: total IV in millions of the reporting currency). "
         "Re-issue the update with a valid field."
     )
 
@@ -173,6 +195,17 @@ def _validate_update(analysis: dict, update: dict) -> Optional[str]:
             return "Fisher score must be a number: 0, 0.5, 0.75 or 1.0."
         if score not in _FISHER_SCORES:
             return "Fisher score must be 0, 0.5, 0.75 or 1.0."
+        return None
+
+    if field.startswith("valuation."):
+        sub = field[10:]
+        if sub not in _VALUATION_FIELDS:
+            return _invalid_field_msg(field)
+        if _parse_valuation_value(new_value) is None:
+            return (
+                "Valuation value must be a positive number: the TOTAL intrinsic value in "
+                "MILLIONS of the reporting currency (not per-share)."
+            )
         return None
 
     return _invalid_field_msg(field)
@@ -231,6 +264,14 @@ def _apply_update(analysis_id: str, analysis: dict, update: dict) -> str:
         overrides["fisher"] = {"points": points, "total": total, "rating": _fisher_rating(total)}
         _write_overrides(analysis_id, overrides)
         return f"Applied Fisher score change (new total: {total}, rating: {_fisher_rating(total)})."
+
+    if field.startswith("valuation."):
+        sub = field[10:]
+        value = _parse_valuation_value(new_value)
+        valuation = overrides.setdefault("valuation", {})
+        valuation[sub] = value
+        _write_overrides(analysis_id, overrides)
+        return f"Applied valuation change: {sub} = {value} mn. The valuation table now shows the new figure."
 
     return _invalid_field_msg(field)
 
@@ -366,8 +407,9 @@ async def chat(
         f"- or when your web search reveals something material,\n"
         f"then ASK the user whether they'd like the thesis updated, and use the update_thesis "
         f"tool to propose specific section changes (executive_summary, bull_case, bear_case, "
-        f"thesis_statement, watch_points, decision, decision_rationale). Propose one update per "
-        f"changed section with a clear reason.\n"
+        f"thesis_statement, watch_points, decision, decision_rationale), score changes, or "
+        f"corrections to the intrinsic-value figures in the valuation table. Propose one update "
+        f"per changed field with a clear reason.\n"
         f"Applying updates: a proposal (apply=false) changes NOTHING until the user either clicks "
         f"the Accept button in the UI or explicitly confirms in chat. When the user explicitly "
         f"confirms in chat (e.g. 'apply them', 'confirm the updates', 'yes, update it'), re-issue "
