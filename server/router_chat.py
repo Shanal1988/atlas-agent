@@ -9,6 +9,7 @@ from server.models import ChatResponse, ChatSource, ProposedUpdate
 router = APIRouter()
 THESES_DIR = Path("data/theses")
 UPLOADS_DIR = Path("data/uploads")
+CHATS_DIR = Path("data/chats")
 
 CHAT_MODEL = "claude-sonnet-4-6"
 
@@ -40,7 +41,15 @@ _UPDATE_THESIS_TOOL = {
         "properties": {
             "field": {
                 "type": "string",
-                "description": "Dot-path to the field being updated, e.g. 'thesis.decision', 'thesis.bull_case', 'bmp.answers.0.rating'",
+                "description": (
+                    "Dot-path to the field being updated. Thesis sections MUST use the 'thesis.' prefix: "
+                    "'thesis.executive_summary', 'thesis.bull_case', 'thesis.bear_case', 'thesis.thesis_statement', "
+                    "'thesis.destination', 'thesis.watch_points', 'thesis.decision', 'thesis.decision_rationale', "
+                    "'thesis.short_term_outlook', 'thesis.short_term_catalysts', 'thesis.short_term_risks', "
+                    "'thesis.medium_term_outlook', 'thesis.medium_term_milestones'. "
+                    "Score changes use 'bmp.answers.<idx>.rating' (value YES/PARTIAL/NO, idx 0-4) or "
+                    "'fisher.points.<idx>.score' (value 0, 0.5, 0.75 or 1.0, idx 0-14)."
+                ),
             },
             "old_value": {"type": "string", "description": "The current value (for display)"},
             "new_value": {"type": "string", "description": "The proposed new value"},
@@ -49,6 +58,27 @@ _UPDATE_THESIS_TOOL = {
         "required": ["field", "new_value", "reason"],
     },
 }
+
+
+def _chat_path(analysis_id: str) -> Path:
+    return CHATS_DIR / f"{analysis_id}.json"
+
+
+def _load_chat(analysis_id: str) -> list[dict]:
+    path = _chat_path(analysis_id)
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _save_chat(analysis_id: str, messages: list[dict]) -> None:
+    CHATS_DIR.mkdir(parents=True, exist_ok=True)
+    _chat_path(analysis_id).write_text(
+        json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _run_web_search(query: str) -> tuple[str, list[dict]]:
@@ -191,11 +221,20 @@ async def chat(
         raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
 
     client = anthropic.Anthropic(api_key=api_key)
-    messages = [{"role": "user", "content": user_content}]
+
+    # Prior conversation (persisted) — replay the last 20 turns for LLM context
+    history = _load_chat(analysis_id)
+    messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in history[-20:]
+        if m.get("content")
+    ]
+    messages.append({"role": "user", "content": user_content})
     tools = [_WEB_SEARCH_TOOL, _UPDATE_THESIS_TOOL]
 
     all_sources: list[dict] = []
     proposed_updates: list[dict] = []
+    answer = ""
 
     # Agentic loop: allow up to 5 tool calls
     for _ in range(5):
@@ -215,11 +254,7 @@ async def chat(
             # Final answer
             text_blocks = [b for b in resp.content if b.type == "text"]
             answer = text_blocks[0].text if text_blocks else ""
-            return ChatResponse(
-                answer=answer,
-                sources=([ChatSource(**s) for s in all_sources] if all_sources else None),
-                proposed_updates=([ProposedUpdate(**u) for u in proposed_updates] if proposed_updates else None),
-            )
+            break
 
         # Append assistant message
         messages.append({"role": "assistant", "content": resp.content})
@@ -245,19 +280,55 @@ async def chat(
                 })
 
         messages.append({"role": "user", "content": tool_results})
+    else:
+        # Loop exhausted — force a final text answer without tools
+        resp = client.messages.create(
+            model=CHAT_MODEL,
+            max_tokens=1024,
+            temperature=0.3,
+            system=system_prompt,
+            messages=messages,
+        )
+        text_blocks = [b for b in resp.content if b.type == "text"]
+        answer = text_blocks[0].text if text_blocks else ""
 
-    # Fallback if loop exhausted
-    resp = client.messages.create(
-        model=CHAT_MODEL,
-        max_tokens=1024,
-        temperature=0.3,
-        system=system_prompt,
-        messages=messages,
-    )
-    text_blocks = [b for b in resp.content if b.type == "text"]
-    answer = text_blocks[0].text if text_blocks else ""
+    # Persist the exchange so chat survives page refreshes
+    user_entry: dict = {"role": "user", "content": message}
+    if file and file.filename:
+        user_entry["attachment"] = file.filename
+    history.append(user_entry)
+    history.append({
+        "role": "assistant",
+        "content": answer,
+        "sources": all_sources or None,
+        "proposed_updates": proposed_updates or None,
+        "updates_applied": False,
+    })
+    _save_chat(analysis_id, history)
+
     return ChatResponse(
         answer=answer,
         sources=([ChatSource(**s) for s in all_sources] if all_sources else None),
         proposed_updates=([ProposedUpdate(**u) for u in proposed_updates] if proposed_updates else None),
     )
+
+
+@router.get("/chat/{analysis_id}/history")
+def chat_history(analysis_id: str):
+    """Return persisted chat history for an analysis."""
+    return {"messages": _load_chat(analysis_id)}
+
+
+@router.patch("/chat/{analysis_id}/history")
+def patch_chat_message(analysis_id: str, body: dict):
+    """Mark proposed updates on a message as applied or dismissed."""
+    index = body.get("index")
+    messages = _load_chat(analysis_id)
+    if not isinstance(index, int) or not (0 <= index < len(messages)):
+        raise HTTPException(404, "Message not found")
+    if body.get("updates_applied"):
+        messages[index]["updates_applied"] = True
+    if body.get("dismissed"):
+        messages[index].pop("proposed_updates", None)
+    _save_chat(analysis_id, messages)
+    return {"ok": True}

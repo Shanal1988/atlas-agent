@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Save, Loader2 } from "lucide-react";
 import { saveOverrides } from "@/lib/api";
 import { BMPScore, AnalysisOverrides, BMPAnswerOverride } from "@/lib/types";
@@ -54,6 +54,19 @@ export function BMPScoreTable({ analysisId, bmp, overrides, onOverridesChange }:
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Re-sync when overrides change externally (e.g. chat-applied updates)
+  useEffect(() => {
+    if (!overrides.bmp?.answers?.length) return;
+    setAnswers(
+      overrides.bmp.answers.map((a, i) => ({
+        label: a.label || bmp.answers[i]?.label || `Q${i + 1}`,
+        rating: a.rating,
+        reasoning: (a as any).reasoning ?? bmp.answers[i]?.reasoning ?? "",
+        user_note: a.user_note ?? "",
+      }))
+    );
+  }, [overrides.bmp]);
 
   const score = answers.reduce((s, a) => s + RATING_SCORE[a.rating], 0);
   const verdict = calcVerdict(score);

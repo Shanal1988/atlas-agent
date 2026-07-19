@@ -228,6 +228,8 @@ export default function AnalysisPage() {
           analysisId={id}
           company={data.company}
           ticker={data.ticker}
+          bmp={scores.bmp}
+          fisher={scores.fisher}
           overrides={overrides}
           onOverridesChange={handleOverridesChange}
         />

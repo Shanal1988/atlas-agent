@@ -1,9 +1,17 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { askFollowUp, saveOverrides } from "@/lib/api";
+import { askFollowUp, saveOverrides, getChatHistory, patchChatMessage } from "@/lib/api";
 import { Send, Loader2, Globe, Check, X, Paperclip } from "lucide-react";
-import { ChatSource, ProposedUpdate, AnalysisOverrides } from "@/lib/types";
+import {
+  ChatSource,
+  ProposedUpdate,
+  AnalysisOverrides,
+  BMPScore,
+  FisherScore,
+  BMPAnswerOverride,
+  FisherPointOverride,
+} from "@/lib/types";
 
 interface Message {
   role: "user" | "assistant";
@@ -23,18 +31,46 @@ interface Props {
   analysisId: string;
   company: string;
   ticker: string;
+  bmp: BMPScore;
+  fisher: FisherScore;
   overrides: AnalysisOverrides;
   onOverridesChange: (updated: AnalysisOverrides) => void;
 }
 
-export function FollowUpChat({ analysisId, company, ticker, overrides, onOverridesChange }: Props) {
+export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrides, onOverridesChange }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Restore persisted chat history on mount (survives page refreshes)
+  useEffect(() => {
+    let cancelled = false;
+    getChatHistory(analysisId)
+      .then((data) => {
+        if (cancelled) return;
+        setMessages(
+          data.messages.map((m) => ({
+            role: m.role,
+            content: m.attachment ? `${m.content}\n📎 ${m.attachment}` : m.content,
+            sources: m.sources ?? undefined,
+            proposed_updates: m.proposed_updates ?? undefined,
+            updatesApplied: m.updates_applied,
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setHistoryLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -69,6 +105,10 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
         },
       ]);
     } catch (e) {
+      // Remove the optimistic user message so local indices stay in sync
+      // with the server-side history (the failed turn was never persisted).
+      setMessages((prev) => prev.slice(0, -1));
+      setInput(trimmed);
       setError(e instanceof Error ? e.message : "Failed to get response");
     } finally {
       setLoading(false);
@@ -82,6 +122,29 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
     "short_term_catalysts", "short_term_risks", "medium_term_milestones",
   ]);
 
+  const THESIS_KEYS = new Set([
+    "executive_summary", "bull_case", "bear_case", "thesis_statement",
+    "destination", "watch_points", "decision", "decision_rationale",
+    "short_term_outlook", "short_term_catalysts", "short_term_risks",
+    "medium_term_outlook", "medium_term_milestones",
+  ]);
+
+  const BMP_RATING_SCORE: Record<string, number> = { YES: 1, PARTIAL: 0.5, NO: 0 };
+
+  function bmpVerdict(score: number): string {
+    if (score >= 4) return "STRONG PASS";
+    if (score >= 3) return "PASS";
+    if (score >= 2) return "BORDERLINE";
+    return "FAIL";
+  }
+
+  function fisherRating(total: number): string {
+    if (total >= 12) return "EXCELLENT";
+    if (total >= 9) return "GOOD";
+    if (total >= 6) return "FAIR";
+    return "POOR";
+  }
+
   function toListItems(value: string): string[] {
     const lines = value
       .split("\n")
@@ -91,25 +154,82 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
   }
 
   async function applyUpdates(msgIdx: number, updates: ProposedUpdate[]) {
-    // Apply thesis field patches
     const newThesis: Record<string, string | string[]> = {
       ...(overrides.thesis ?? {}),
     };
+    let bmpAnswers: BMPAnswerOverride[] | null = null;
+    let fisherPoints: FisherPointOverride[] | null = null;
+    const skipped: string[] = [];
+
     for (const u of updates) {
-      if (u.field.startsWith("thesis.")) {
-        const key = u.field.replace("thesis.", "");
-        newThesis[key] = ARRAY_FIELDS.has(key)
+      // Thesis sections — accept both 'thesis.bull_case' and bare 'bull_case'
+      const thesisKey = u.field.startsWith("thesis.") ? u.field.slice(7) : u.field;
+      if (THESIS_KEYS.has(thesisKey)) {
+        newThesis[thesisKey] = ARRAY_FIELDS.has(thesisKey)
           ? toListItems(u.new_value)
           : u.new_value;
+        continue;
       }
+
+      // BMP rating: bmp.answers.<idx>.rating
+      const bmpMatch = u.field.match(/^bmp\.answers\.(\d+)\.rating$/);
+      if (bmpMatch) {
+        const idx = parseInt(bmpMatch[1], 10);
+        const rating = u.new_value.trim().toUpperCase();
+        if (idx < bmp.answers.length && rating in BMP_RATING_SCORE) {
+          bmpAnswers ??=
+            overrides.bmp?.answers?.length
+              ? overrides.bmp.answers.map((a) => ({ ...a }))
+              : bmp.answers.map((a) => ({
+                  label: a.label,
+                  rating: a.rating,
+                  reasoning: a.reasoning,
+                  user_note: "",
+                }));
+          bmpAnswers[idx] = {
+            ...bmpAnswers[idx],
+            rating: rating as BMPAnswerOverride["rating"],
+          };
+          continue;
+        }
+      }
+
+      // Fisher score: fisher.points.<idx>.score
+      const fisherMatch = u.field.match(/^fisher\.points\.(\d+)\.score$/);
+      if (fisherMatch) {
+        const idx = parseInt(fisherMatch[1], 10);
+        const score = parseFloat(u.new_value);
+        if (idx < fisher.points.length && [0, 0.5, 0.75, 1].includes(score)) {
+          fisherPoints ??=
+            overrides.fisher?.points?.length
+              ? overrides.fisher.points.map((p) => ({ ...p }))
+              : fisher.points.map((p) => ({
+                  key: p.key,
+                  label: p.label,
+                  score: p.score,
+                  reasoning: p.reasoning,
+                  user_note: "",
+                }));
+          fisherPoints[idx] = { ...fisherPoints[idx], score };
+          continue;
+        }
+      }
+
+      skipped.push(u.field);
     }
 
-    const updated: AnalysisOverrides = {
-      ...overrides,
-      thesis: Object.keys(newThesis).length
-        ? (newThesis as AnalysisOverrides["thesis"])
-        : overrides.thesis,
-    };
+    const updated: AnalysisOverrides = { ...overrides };
+    if (Object.keys(newThesis).length) {
+      updated.thesis = newThesis as AnalysisOverrides["thesis"];
+    }
+    if (bmpAnswers) {
+      const score = bmpAnswers.reduce((s, a) => s + BMP_RATING_SCORE[a.rating], 0);
+      updated.bmp = { answers: bmpAnswers, score, verdict: bmpVerdict(score) };
+    }
+    if (fisherPoints) {
+      const total = fisherPoints.reduce((s, p) => s + p.score, 0);
+      updated.fisher = { points: fisherPoints, total, rating: fisherRating(total) };
+    }
 
     try {
       await saveOverrides(analysisId, updated);
@@ -117,8 +237,15 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
       setMessages((prev) =>
         prev.map((m, i) => (i === msgIdx ? { ...m, updatesApplied: true } : m))
       );
+      patchChatMessage(analysisId, msgIdx, { updates_applied: true }).catch(() => {});
+      setError(
+        skipped.length
+          ? `Some updates could not be applied (unrecognised fields): ${skipped.join(", ")}`
+          : null
+      );
     } catch (e) {
       console.error("Failed to apply updates", e);
+      setError("Failed to save updates — please try again.");
     }
   }
 
@@ -126,6 +253,7 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
     setMessages((prev) =>
       prev.map((m, i) => (i === msgIdx ? { ...m, proposed_updates: undefined } : m))
     );
+    patchChatMessage(analysisId, msgIdx, { dismissed: true }).catch(() => {});
   }
 
   return (
@@ -141,7 +269,7 @@ export function FollowUpChat({ analysisId, company, ticker, overrides, onOverrid
 
       {/* Message history */}
       <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto">
-        {messages.length === 0 && !loading && (
+        {messages.length === 0 && !loading && historyLoaded && (
           <div className="space-y-2">
             <p className="text-slate-500 text-sm">Suggested questions:</p>
             <div className="flex flex-wrap gap-2">

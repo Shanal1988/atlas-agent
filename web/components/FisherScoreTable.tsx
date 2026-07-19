@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Save, Loader2 } from "lucide-react";
 import { saveOverrides } from "@/lib/api";
 import { FisherScore, AnalysisOverrides, FisherPointOverride } from "@/lib/types";
@@ -58,6 +58,20 @@ export function FisherScoreTable({ analysisId, fisher, overrides, onOverridesCha
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Re-sync when overrides change externally (e.g. chat-applied updates)
+  useEffect(() => {
+    if (!overrides.fisher?.points?.length) return;
+    setPoints(
+      overrides.fisher.points.map((p, i) => ({
+        key: p.key || fisher.points[i]?.key || `P${i + 1}`,
+        label: p.label || fisher.points[i]?.label || `Point ${i + 1}`,
+        score: p.score,
+        reasoning: (p as any).reasoning ?? fisher.points[i]?.reasoning ?? "",
+        user_note: p.user_note ?? "",
+      }))
+    );
+  }, [overrides.fisher]);
 
   const total = points.reduce((s, p) => s + p.score, 0);
   const rating = calcRating(total);

@@ -1,4 +1,4 @@
-import { Analysis, AnalysisSummary, Stage } from "./types";
+import { Analysis, AnalysisSummary, ChatHistoryMessage, Stage } from "./types";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -123,6 +123,30 @@ export async function askFollowUp(analysisId: string, message: string, file?: Fi
       throw e;
     }
   }
+}
+
+export async function getChatHistory(
+  analysisId: string
+): Promise<{ messages: ChatHistoryMessage[] }> {
+  const res = await fetch(`${API}/api/chat/${analysisId}/history`, {
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function patchChatMessage(
+  analysisId: string,
+  index: number,
+  patch: { updates_applied?: boolean; dismissed?: boolean }
+) {
+  const res = await fetch(`${API}/api/chat/${analysisId}/history`, {
+    method: "PATCH",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ index, ...patch }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 
 // ── Financial Statements ──────────────────────────────────────────────────────

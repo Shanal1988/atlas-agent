@@ -445,6 +445,15 @@ export interface ChatResponseData {
   proposed_updates?: ProposedUpdate[];
 }
 
+export interface ChatHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  attachment?: string | null;
+  sources?: ChatSource[] | null;
+  proposed_updates?: ProposedUpdate[] | null;
+  updates_applied?: boolean;
+}
+
 // SSE event types
 export type ProgressEvent =
   | { type: "snapshot"; status: string; current_stage?: string; completed_stages?: string[]; logs?: any[]; ticker?: string; result_json_path?: string; error?: string }
