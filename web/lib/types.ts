@@ -443,6 +443,7 @@ export interface ChatResponseData {
   answer: string;
   sources?: ChatSource[];
   proposed_updates?: ProposedUpdate[];
+  applied_updates?: ProposedUpdate[];
 }
 
 export interface ChatHistoryMessage {
@@ -451,6 +452,7 @@ export interface ChatHistoryMessage {
   attachment?: string | null;
   sources?: ChatSource[] | null;
   proposed_updates?: ProposedUpdate[] | null;
+  applied_updates?: ProposedUpdate[] | null;
   updates_applied?: boolean;
 }
 

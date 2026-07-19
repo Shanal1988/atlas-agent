@@ -30,6 +30,7 @@ class ChatResponse(BaseModel):
     answer: str
     sources: list[ChatSource] | None = None
     proposed_updates: list[ProposedUpdate] | None = None
+    applied_updates: list[ProposedUpdate] | None = None
 
 
 class UrlExtractRequest(BaseModel):

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { askFollowUp, saveOverrides, getChatHistory, patchChatMessage } from "@/lib/api";
+import { askFollowUp, saveOverrides, getOverrides, getChatHistory, patchChatMessage } from "@/lib/api";
 import { Send, Loader2, Globe, Check, X, Paperclip } from "lucide-react";
 import {
   ChatSource,
@@ -18,6 +18,7 @@ interface Message {
   content: string;
   sources?: ChatSource[];
   proposed_updates?: ProposedUpdate[];
+  applied_updates?: ProposedUpdate[];
   updatesApplied?: boolean;
 }
 
@@ -59,6 +60,7 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
             content: m.attachment ? `${m.content}\n📎 ${m.attachment}` : m.content,
             sources: m.sources ?? undefined,
             proposed_updates: m.proposed_updates ?? undefined,
+            applied_updates: m.applied_updates ?? undefined,
             updatesApplied: m.updates_applied,
           }))
         );
@@ -102,8 +104,19 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
           content: data.answer,
           sources: data.sources,
           proposed_updates: data.proposed_updates,
+          applied_updates: data.applied_updates,
         },
       ]);
+      // Updates applied server-side during the chat turn — refresh overrides so
+      // the thesis page and score tables re-render with the new values.
+      if (data.applied_updates?.length) {
+        try {
+          const fresh = await getOverrides(analysisId);
+          onOverridesChange(fresh);
+        } catch {
+          // non-fatal — SWR will pick up the change on next revalidation
+        }
+      }
     } catch (e) {
       // Remove the optimistic user message so local indices stay in sync
       // with the server-side history (the failed turn was never persisted).
@@ -346,6 +359,21 @@ export function FollowUpChat({ analysisId, company, ticker, bmp, fisher, overrid
                     <X className="w-3 h-3" /> Dismiss
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Auto-applied updates card */}
+            {msg.applied_updates && msg.applied_updates.length > 0 && (
+              <div className="max-w-[85%] mt-2 bg-emerald-950/40 border border-emerald-700/40 rounded-xl p-3 space-y-2 text-xs">
+                <p className="font-semibold text-emerald-300 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Applied to thesis ({msg.applied_updates.length})
+                </p>
+                {msg.applied_updates.map((u, ui) => (
+                  <div key={ui} className="space-y-0.5">
+                    <p className="font-mono text-emerald-400/80">{u.field}</p>
+                    <p className="text-slate-300">{u.new_value}</p>
+                  </div>
+                ))}
               </div>
             )}
 
