@@ -56,8 +56,8 @@ _FMP_BALANCE_MAP = {
     "totalDebt": "total_debt",
     "totalLiabilities": "total_liabilities",
     "totalStockholdersEquity": "total_equity",
-    "commonStock": "shares_outstanding",  # fallback
     "sharesOutstanding": "shares_outstanding",
+    "commonStock": "shares_outstanding",  # fallback, only used if sharesOutstanding is missing
 }
 _FMP_CF_MAP = {
     "operatingCashFlow": "operating_cash_flow",
@@ -120,7 +120,7 @@ def seed_from_fmp(ticker: str, years: int = 5) -> dict:
         seen_years.add(yr)
         for fmp_key, our_key in _FMP_BALANCE_MAP.items():
             val = row.get(fmp_key)
-            if val is not None and our_key not in result["balance_sheet"] or result["balance_sheet"].get(our_key, {}).get(yr) is None:
+            if val is not None and result["balance_sheet"].get(our_key, {}).get(yr) is None:
                 result["balance_sheet"].setdefault(our_key, {})[yr] = val
 
     cf_rows = _fmp("/cash-flow-statement", {"symbol": ticker, "limit": years}) or []
