@@ -12,7 +12,7 @@ from groq import Groq
 # -- Constants -----------------------------------------------------------------
 
 FMP_BASE   = "https://financialmodelingprep.com/stable"
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 # -- Shared helpers ------------------------------------------------------------

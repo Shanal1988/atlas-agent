@@ -13,8 +13,8 @@ from agents.guardrails import check_security_type
 # -- Constants -----------------------------------------------------------------
 
 FMP_BASE = "https://financialmodelingprep.com/stable"
-GROQ_MODEL      = "meta-llama/llama-4-scout-17b-16e-instruct"  # profile building
-GROQ_MODEL_FAST = "llama-3.1-8b-instant"             # ticker extraction
+GROQ_MODEL      = "openai/gpt-oss-120b"  # profile building
+GROQ_MODEL_FAST = "openai/gpt-oss-20b"   # ticker extraction
 
 # Yahoo Finance exchange suffixes that indicate non-US listings -> use yfinance
 _INTL_SUFFIXES = {

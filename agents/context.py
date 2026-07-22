@@ -6,7 +6,7 @@
 
 import os
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 def call_llm(messages: list, max_tokens: int, temperature: float, stage: str = "") -> str:
