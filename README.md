@@ -124,7 +124,7 @@ atlas-agent/
 - **US stocks** — primary data from [FMP stable API](https://financialmodelingprep.com/developer/docs), gap-filled from yfinance
 - **International stocks** — primary data from yfinance (auto-detected by ticker suffix: `.L`, `.AS`, `.TO`, etc.)
 - **Web research** — Tavily search for Fisher analysis and qualitative context
-- **LLM scoring** — Groq `llama-3.3-70b-versatile` for all structured scoring and writing
+- **LLM scoring** — Groq `openai/gpt-oss-120b` for all structured scoring and writing
 
 ---
 
@@ -467,7 +467,7 @@ Add to `requirements.txt`: `openai`
 
 **Architecture:** All judge logic lives in a new `agents/judge.py`. All judges are **non-blocking** — they print a `[JUDGE]` warning but never halt the pipeline. The analyst reviews the flags and decides whether to re-run or override.
 
-**Model:** Same Groq `llama-3.3-70b-versatile`. No additional API key. Adds ~900–1100 tokens per full pipeline run across all four judges.
+**Model:** Same Groq `openai/gpt-oss-120b`. No additional API key. Adds ~900–1100 tokens per full pipeline run across all four judges.
 
 **New file:** `agents/judge.py`
 

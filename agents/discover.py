@@ -21,7 +21,7 @@ from agents.llm_client import gemini_call
 
 # -- Constants -----------------------------------------------------------------
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 REGION_EXCHANGES = {
     "USA":    ["NYSE", "NASDAQ"],

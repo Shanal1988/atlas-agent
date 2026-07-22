@@ -5,7 +5,7 @@ from groq import Groq
 from tavily import TavilyClient
 
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 _FISHER_SYSTEM = (
     "You are Philip Fisher reincarnated as an AI equity analyst. "

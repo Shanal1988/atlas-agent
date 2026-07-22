@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from groq import Groq
 
 
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "openai/gpt-oss-20b"
 
 
 # -- Result type ---------------------------------------------------------------
