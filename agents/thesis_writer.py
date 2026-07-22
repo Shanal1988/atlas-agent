@@ -7,7 +7,7 @@ from pathlib import Path
 from groq import Groq
 
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:

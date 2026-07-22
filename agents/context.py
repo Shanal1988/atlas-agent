@@ -6,15 +6,16 @@
 
 import os
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "qwen/qwen3.6-27b"
 
 
-def call_llm(messages: list, max_tokens: int, temperature: float, stage: str = "") -> str:
+def call_llm(messages: list, max_tokens: int, temperature: float,
+             stage: str = "", model: str | None = None) -> str:
     """House LLM fallback chain: Groq -> Gemini (-> Claude inside gemini_call)."""
     from groq import Groq
     try:
         resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=messages,
+            model=model or GROQ_MODEL, messages=messages,
             max_tokens=max_tokens, temperature=temperature,
         )
         return resp.choices[0].message.content

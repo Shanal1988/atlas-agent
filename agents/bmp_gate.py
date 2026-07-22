@@ -31,7 +31,7 @@ def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
         return gemini_call(messages, max_tokens, temperature, stage="BMP")
 
 
-GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_MODEL = "qwen/qwen3.6-27b"
 
 _BMP_SYSTEM = (
     "You are a disciplined long-term equity analyst using the BMP checklist framework. "
