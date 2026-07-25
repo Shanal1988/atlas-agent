@@ -1,37 +1,13 @@
 # Stage 4 - Stock Selection Checklist
 
-import os
 import yfinance as yf
 import pandas as pd
-from groq import Groq
-
-
-GROQ_MODEL = "qwen/qwen3.6-27b"
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
-    """Use fine-tuned OpenAI model if OPENAI_FT_SELECTION_MODEL is set, else Groq."""
-    ft_model = os.environ.get("OPENAI_FT_SELECTION_MODEL")
-    if ft_model:
-        try:
-            from openai import OpenAI
-            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
-                model=ft_model, messages=messages,
-                max_tokens=max_tokens, temperature=temperature,
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            print(f"  [Warning] OpenAI Selection model failed ({e}), falling back to Groq.")
-    try:
-        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(messages, max_tokens, temperature, stage="selection")
+    from agents.context import call_llm_with_ft
+    return call_llm_with_ft(messages, max_tokens, temperature,
+                            stage="selection", ft_env_var="OPENAI_FT_SELECTION_MODEL")
 
 _SELECTION_SYSTEM = (
     "You are a rigorous long-term equity analyst running a stock selection checklist "

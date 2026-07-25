@@ -1,11 +1,6 @@
 # Stage 3 - Fisher 15-Point Analysis
 
-import os
-from groq import Groq
-from tavily import TavilyClient
-
-
-GROQ_MODEL = "qwen/qwen3.6-27b"
+from agents.search_client import web_search_content
 
 _FISHER_SYSTEM = (
     "You are Philip Fisher reincarnated as an AI equity analyst. "
@@ -54,18 +49,10 @@ P15 MANAGEMENT INTEGRITY:  Does the company have management of unquestionable in
 """
 
 
-# -- Tavily helpers ------------------------------------------------------------
-
-def _tavily() -> TavilyClient:
-    return TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-
+# -- Search helper -------------------------------------------------------------
 
 def _search(query: str, max_results: int = 4) -> str:
-    results = _tavily().search(query=query, max_results=max_results)
-    return "\n\n".join(
-        f"[{r['title']}]\n{r['content']}"
-        for r in results.get("results", [])
-    )
+    return web_search_content(query, max_results)
 
 
 def _gather_evidence(company: str, ticker: str = "") -> str:
@@ -123,7 +110,7 @@ def _gather_evidence(company: str, ticker: str = "") -> str:
                     return (
                         "=== RAG Evidence (Annual Reports / Transcripts / Sector KB) ===\n\n"
                         + rag_combined
-                        + "\n\n=== Live Web Search (Tavily) ===\n\n"
+                        + "\n\n=== Live Web Search ===\n\n"
                         + tavily_combined
                     )
         except Exception:
@@ -170,10 +157,10 @@ def _profile_context(profile: dict) -> str:
     return "\n".join(lines)
 
 
-# -- Groq scoring --------------------------------------------------------------
+# -- LLM scoring ---------------------------------------------------------------
 
-def _score_with_groq(company: str, profile_ctx: str, evidence: str) -> str:
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
+def _score_with_llm(company: str, profile_ctx: str, evidence: str) -> str:
+    from agents.context import call_llm
 
     user_msg = (
         f"Company financial data:\n{profile_ctx}\n\n"
@@ -185,15 +172,7 @@ def _score_with_groq(company: str, profile_ctx: str, evidence: str) -> str:
         {"role": "system", "content": _FISHER_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    try:
-        response = client.chat.completions.create(
-            model=GROQ_MODEL, messages=_msgs, max_tokens=1024, temperature=0.1,
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(_msgs, max_tokens=1024, temperature=0.1, stage="Fisher scoring")
+    return call_llm(_msgs, max_tokens=1024, temperature=0.1, stage="Fisher scoring")
 
 
 # -- Parser --------------------------------------------------------------------
@@ -305,8 +284,8 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     profile_ctx = _profile_context(profile)
     evidence    = _gather_evidence(company, ticker=profile.get("ticker", ""))
 
-    print("  [Fisher] Scoring 15 points via Groq...")
-    raw = _score_with_groq(company, profile_ctx, evidence)
+    print("  [Fisher] Scoring 15 points...")
+    raw = _score_with_llm(company, profile_ctx, evidence)
 
     points = _parse_scores(raw)
     total  = round(sum(pt["score"] for pt in points), 2)

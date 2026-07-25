@@ -6,13 +6,12 @@
 import os
 import requests
 import yfinance as yf
-from groq import Groq
+from agents.search_client import web_search_content
 
 
 # -- Constants -----------------------------------------------------------------
 
-FMP_BASE   = "https://financialmodelingprep.com/stable"
-GROQ_MODEL = "qwen/qwen3.6-27b"
+FMP_BASE = "https://financialmodelingprep.com/stable"
 
 
 # -- Shared helpers ------------------------------------------------------------
@@ -22,18 +21,8 @@ def _fmp(endpoint: str, params: dict) -> list | None:
     return fmp_get(endpoint, params)
 
 
-def _groq():
-    return Groq(api_key=os.environ["GROQ_API_KEY"])
-
-
 def _tavily_content(query: str, max_results: int = 4) -> str:
-    from tavily import TavilyClient
-    tc = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
-    results = tc.search(query=query, max_results=max_results)
-    return "\n\n".join(
-        f"[{r['title']}]\n{r['content']}"
-        for r in results.get("results", [])
-    )
+    return web_search_content(query, max_results)
 
 
 def _is_us_listed(ticker: str) -> bool:
@@ -167,11 +156,10 @@ def _resolve_peers_via_search(company: str, business_focus: str, ticker: str) ->
             f"Example output:\nRELY\nWU\nADYEN.AS\n\n"
             f"Search results:\n{snippets}"
         )
-        resp = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=[{"role": "user", "content": prompt}],
-            max_tokens=100, temperature=0,
-        )
-        raw = resp.choices[0].message.content.strip()
+        from agents.context import call_llm
+        raw = call_llm([{"role": "user", "content": prompt}],
+                       max_tokens=100, temperature=0, stage="peer resolution")
+        raw = (raw or "").strip()
         tickers = []
         for line in raw.splitlines():
             line = line.strip()
@@ -348,16 +336,9 @@ def _synthesise(profile: dict, peer_metrics: list[dict], qualitative: str) -> di
         {"role": "system", "content": _INDUSTRY_SYSTEM},
         {"role": "user",   "content": context},
     ]
-    try:
-        resp = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=messages, max_tokens=1024, temperature=0.2,
-        )
-        text = resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        text = gemini_call(messages, max_tokens=1024, temperature=0.2,
-                           stage="industry analysis")
+    from agents.context import call_llm
+    text = call_llm(messages, max_tokens=1024, temperature=0.2,
+                    stage="industry analysis")
 
     if not text:
         return {label: "N/A" for label in _SECTION_LABELS}

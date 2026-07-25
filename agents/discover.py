@@ -12,16 +12,8 @@
 import json
 import os
 
-from groq import Groq
-from tavily import TavilyClient
-
 from agents.fmp_client import fmp_get
-from agents.llm_client import gemini_call
-
-
-# -- Constants -----------------------------------------------------------------
-
-GROQ_MODEL = "qwen/qwen3.6-27b"
+from agents.search_client import web_search
 
 REGION_EXCHANGES = {
     "USA":    ["NYSE", "NASDAQ"],
@@ -42,14 +34,6 @@ DEFAULT_THEMES = [
 ]
 
 
-# -- Shared clients (lazy) ----------------------------------------------------
-
-def _groq() -> Groq:
-    return Groq(api_key=os.environ["GROQ_API_KEY"])
-
-
-def _tavily() -> TavilyClient:
-    return TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 
 
 # -- Formatters (reused from similar_companies.py) -----------------------------
@@ -82,17 +66,16 @@ def _fmt_pct(n) -> str:
 # -- Phase 1: Web search for trending themes ----------------------------------
 
 def _tavily_search(queries: list[str]) -> str:
-    """Run Tavily searches, return concatenated results. Empty string on failure."""
+    """Run web searches, return concatenated results. Empty string on failure."""
     try:
-        client = _tavily()
         all_content = []
         for q in queries:
-            results = client.search(query=q, max_results=5)
-            for r in results.get("results", []):
+            results = web_search(q, max_results=5)
+            for r in results:
                 all_content.append(f"[{r['title']}]\n{r['content']}")
         return "\n\n".join(all_content)
     except Exception as e:
-        print(f"  [Warning] Tavily unavailable ({type(e).__name__}) — using default themes.")
+        print(f"  [Warning] Search unavailable ({type(e).__name__}) — using default themes.")
         return ""
 
 
@@ -118,15 +101,8 @@ def _extract_themes(trend_content: str, regions: list[str]) -> list[dict]:
     )
 
     msgs = [{"role": "user", "content": prompt}]
-    text = ""
-    try:
-        resp = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=msgs, max_tokens=2048, temperature=0.3,
-        )
-        text = resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        text = gemini_call(msgs, max_tokens=2048, temperature=0.3, stage="discover_themes")
+    from agents.context import call_llm
+    text = call_llm(msgs, max_tokens=2048, temperature=0.3, stage="discover_themes")
 
     if text:
         try:
@@ -200,15 +176,8 @@ def _discover_tickers(region: str, sector: str | None, themes: list[dict]) -> li
     )
 
     msgs = [{"role": "user", "content": prompt}]
-    text = ""
-    try:
-        resp = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=msgs, max_tokens=2048, temperature=0.3,
-        )
-        text = resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        text = gemini_call(msgs, max_tokens=2048, temperature=0.3, stage="discover_tickers")
+    from agents.context import call_llm
+    text = call_llm(msgs, max_tokens=2048, temperature=0.3, stage="discover_tickers")
 
     if text:
         try:
@@ -384,15 +353,8 @@ def _synthesize_results(candidates: list[dict], themes: list[dict]) -> list[dict
     )
 
     msgs = [{"role": "user", "content": prompt}]
-    text = ""
-    try:
-        resp = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=msgs, max_tokens=4096, temperature=0.3,
-        )
-        text = resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        text = gemini_call(msgs, max_tokens=4096, temperature=0.3, stage="discover_synthesis")
+    from agents.context import call_llm
+    text = call_llm(msgs, max_tokens=4096, temperature=0.3, stage="discover_synthesis")
 
     if text:
         try:

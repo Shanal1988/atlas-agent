@@ -298,16 +298,15 @@ def _save_chat(analysis_id: str, messages: list[dict]) -> None:
 
 
 def _run_web_search(query: str) -> tuple[str, list[dict]]:
-    """Run Tavily search, return (content_for_claude, sources_list)."""
+    """Run web search (Brave -> Exa -> Tavily), return (content_for_claude, sources_list)."""
     try:
-        from tavily import TavilyClient
-        client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY", ""))
-        result = client.search(query=query, max_results=5)
-        sources = []
-        snippets = []
-        for r in result.get("results", []):
-            sources.append({"title": r.get("title", ""), "url": r.get("url", "")})
-            snippets.append(f"**{r.get('title', '')}** ({r.get('url', '')})\n{r.get('content', '')}")
+        from agents.search_client import web_search
+        results = web_search(query, max_results=5)
+        sources = [{"title": r["title"], "url": r["url"]} for r in results]
+        snippets = [
+            f"**{r['title']}** ({r['url']})\n{r['content']}"
+            for r in results
+        ]
         return "\n\n".join(snippets), sources
     except Exception as e:
         return f"Search failed: {e}", []

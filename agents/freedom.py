@@ -9,19 +9,13 @@ from datetime import datetime
 
 import yfinance as yf
 
-from agents.llm_client import gemini_call
-
-try:
-    from groq import Groq
-except ImportError:
-    Groq = None
+from agents.context import call_llm
 
 
 # -- Constants -----------------------------------------------------------------
 
 PORTFOLIO_PATH = os.path.join("data", "portfolio", "portfolio.json")
 
-GROQ_MODEL = "qwen/qwen3.6-27b"
 
 DEFAULT_PORTFOLIO = {
     "owner": "",
@@ -41,8 +35,6 @@ GBX_EXCHANGES = {"LSE", "LON"}
 
 # -- Lazy LLM client ----------------------------------------------------------
 
-def _groq():
-    return Groq(api_key=os.environ["GROQ_API_KEY"])
 
 
 # -- Portfolio CRUD ------------------------------------------------------------
@@ -348,16 +340,7 @@ def review_portfolio(portfolio: dict, valuation: dict) -> str:
     )
 
     msgs = [{"role": "user", "content": prompt}]
-    text = ""
-    try:
-        resp = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=msgs, max_tokens=4096, temperature=0.3,
-        )
-        text = resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        text = gemini_call(msgs, max_tokens=4096, temperature=0.3, stage="freedom_review")
-
+    text = call_llm(msgs, max_tokens=4096, temperature=0.3, stage="freedom_review")
     return text or "  [Error] Could not generate portfolio review."
 
 

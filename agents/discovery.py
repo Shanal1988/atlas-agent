@@ -5,16 +5,13 @@ import sys
 import requests
 import yfinance as yf
 import pandas as pd
-from groq import Groq
-from tavily import TavilyClient
+from agents.search_client import web_search, web_search_content
 from agents.guardrails import check_security_type
 
 
 # -- Constants -----------------------------------------------------------------
 
 FMP_BASE = "https://financialmodelingprep.com/stable"
-GROQ_MODEL      = "qwen/qwen3.6-27b"            # profile building
-GROQ_MODEL_FAST = "openai/gpt-oss-20b"              # ticker extraction
 
 # Yahoo Finance exchange suffixes that indicate non-US listings -> use yfinance
 _INTL_SUFFIXES = {
@@ -43,13 +40,6 @@ _INTL_SUFFIXES = {
 }
 
 
-# -- Shared clients (lazily initialised on first use) -------------------------
-
-def _groq() -> Groq:
-    return Groq(api_key=os.environ["GROQ_API_KEY"])
-
-def _tavily() -> TavilyClient:
-    return TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 
 
 # -- Exchange routing ----------------------------------------------------------
@@ -74,13 +64,10 @@ def _resolve_ticker(company_name: str) -> str:
     """
     print("  [1/3] Resolving ticker...")
 
-    results = _tavily().search(
-        query=f"{company_name} stock ticker symbol exchange",
-        max_results=5,
-    )
+    results = web_search(f"{company_name} stock ticker symbol exchange", max_results=5)
     snippets = "\n\n".join(
         f"Title: {r['title']}\n{r['content']}"
-        for r in results.get("results", [])
+        for r in results
     )
 
     prompt = (
@@ -96,20 +83,14 @@ def _resolve_ticker(company_name: str) -> str:
     )
 
     _msgs = [{"role": "user", "content": prompt}]
-    try:
-        response = _groq().chat.completions.create(
-            model=GROQ_MODEL_FAST, messages=_msgs, max_tokens=16, temperature=0,
-        )
-        raw = response.choices[0].message.content.strip().upper()
+    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    raw = call_llm(_msgs, max_tokens=16, temperature=0,
+                   stage="ticker", model=OPENROUTER_MODEL_FAST)
+    if raw:
+        raw = raw.strip().upper()
         ticker = raw.split()[0].strip(".,;:()'\"")
-    except Exception as e:
-        print(f"        -> Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        raw = gemini_call(_msgs, max_tokens=16, temperature=0)
-        if raw:
-            ticker = raw.strip().upper().split()[0].strip(".,;:()'\"")
-        else:
-            print("        -> Gemini unavailable, using input as ticker")
+    else:
+        print("        -> LLM unavailable, using input as ticker")
             ticker = company_name.upper().split()[0].strip(".,;:()'\"")
     print(f"        -> {ticker}")
     return ticker
@@ -738,16 +719,12 @@ _ANALYST_SYSTEM = (
 
 
 def _tavily_content(query: str, max_results: int = 4) -> str:
-    """Return concatenated content snippets from a Tavily search."""
-    results = _tavily().search(query=query, max_results=max_results)
-    return "\n\n".join(
-        f"[{r['title']}]\n{r['content']}"
-        for r in results.get("results", [])
-    )
+    """Return concatenated content snippets from a web search."""
+    return web_search_content(query, max_results)
 
 
 def _fetch_qualitative(company_name: str, ticker: str) -> dict:
-    """Four Tavily searches -> Groq synthesis."""
+    """Four web searches -> LLM synthesis."""
     searches = [
         f"{company_name} competitive moat analysis",
         f"{company_name} growth drivers 2025",
@@ -765,15 +742,8 @@ def _fetch_qualitative(company_name: str, ticker: str) -> dict:
         {"role": "system", "content": _ANALYST_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    try:
-        response = _groq().chat.completions.create(
-            model=GROQ_MODEL, messages=_msgs, max_tokens=1024, temperature=0.2,
-        )
-        text = response.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        text = gemini_call(_msgs, max_tokens=1024, temperature=0.2, stage="qualitative analysis")
+    from agents.context import call_llm
+    text = call_llm(_msgs, max_tokens=1024, temperature=0.2, stage="qualitative analysis")
     if not text:
         return {
             "description":    "N/A",

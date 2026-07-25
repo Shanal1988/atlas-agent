@@ -6,23 +6,48 @@
 
 import os
 
-GROQ_MODEL = "qwen/qwen3.6-27b"
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+OPENROUTER_MODEL_FAST = os.environ.get("OPENROUTER_MODEL_FAST", "google/gemini-2.5-flash")
 
 
 def call_llm(messages: list, max_tokens: int, temperature: float,
              stage: str = "", model: str | None = None) -> str:
-    """House LLM fallback chain: Groq -> Gemini (-> Claude inside gemini_call)."""
-    from groq import Groq
+    """House LLM fallback chain: OpenRouter -> Gemini (-> Claude inside gemini_call)."""
+    from openai import OpenAI
+    effective_model = model or OPENROUTER_MODEL
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        print(f"  [Warning] OPENROUTER_API_KEY not set, trying Gemini...")
+        from agents.llm_client import gemini_call
+        return gemini_call(messages, max_tokens, temperature, stage=stage)
     try:
-        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=model or GROQ_MODEL, messages=messages,
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        resp = client.chat.completions.create(
+            model=effective_model, messages=messages,
             max_tokens=max_tokens, temperature=temperature,
         )
         return resp.choices[0].message.content
     except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
+        print(f"  [Warning] OpenRouter unavailable ({type(e).__name__}), trying Gemini...")
         from agents.llm_client import gemini_call
         return gemini_call(messages, max_tokens, temperature, stage=stage)
+
+
+def call_llm_with_ft(messages: list, max_tokens: int, temperature: float,
+                     stage: str = "", ft_env_var: str = "") -> str:
+    """Try a fine-tuned OpenAI model first, then fall back to call_llm()."""
+    ft_model = os.environ.get(ft_env_var) if ft_env_var else None
+    if ft_model:
+        try:
+            from openai import OpenAI
+            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
+                model=ft_model, messages=messages,
+                max_tokens=max_tokens, temperature=temperature,
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print(f"  [Warning] OpenAI FT model failed ({e}), falling back...")
+    return call_llm(messages, max_tokens, temperature, stage=stage)
 
 _DIGITAL_MATURE_MARGINS = {
     "internet content & information": 0.35,   # Google, Meta

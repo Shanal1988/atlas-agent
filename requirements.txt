@@ -9,9 +9,9 @@ anthropic
 requests
 python-dotenv
 yfinance
-groq
-tavily-python
 openai
+exa-py
+tavily-python
 
 # RAG layer
 chromadb

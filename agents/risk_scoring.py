@@ -11,37 +11,13 @@
 #   3. Anti-Fragile < 7 -> forced to 0%
 #   4. OEY < 5% -> price_veto flag (blocks INVEST in thesis; doesn't zero size)
 
-import os
-from groq import Groq
-
 from agents.context import compute_oey
-
-GROQ_MODEL = "qwen/qwen3.6-27b"
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
-    """Use fine-tuned OpenAI model if OPENAI_FT_RISK_MODEL is set, else Groq."""
-    ft_model = os.environ.get("OPENAI_FT_RISK_MODEL")
-    if ft_model:
-        try:
-            from openai import OpenAI
-            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
-                model=ft_model, messages=messages,
-                max_tokens=max_tokens, temperature=temperature,
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            print(f"  [Warning] OpenAI Risk model failed ({e}), falling back to Groq.")
-    try:
-        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(messages, max_tokens, temperature, stage="risk scoring")
+    from agents.context import call_llm_with_ft
+    return call_llm_with_ft(messages, max_tokens, temperature,
+                            stage="risk scoring", ft_env_var="OPENAI_FT_RISK_MODEL")
 
 
 # (name, lo_nos, hi_nos, label, lo_pct, hi_pct) — per the sheet

@@ -439,17 +439,12 @@ Text:
     except Exception:
         pass
 
-    # Groq fallback
+    # OpenRouter fallback
     try:
-        from groq import Groq
-        client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-        resp = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=2048,
-            temperature=0,
-        )
-        raw = resp.choices[0].message.content.strip()
+        from agents.context import call_llm
+        raw = call_llm([{"role": "user", "content": prompt}],
+                       max_tokens=2048, temperature=0, stage="financial_parser")
+        raw = (raw or "").strip()
         if "```" in raw:
             raw = raw.split("```")[1]
             if raw.startswith("json"):

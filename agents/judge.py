@@ -4,12 +4,7 @@
 # Judge 1 (score justification), Judge 2 (bull/bear balance), Judge 3 (thesis
 # coherence) make Groq calls; Judge 4 (cross-stage consistency) is rule-only.
 
-import os
 from dataclasses import dataclass, field
-from groq import Groq
-
-
-GROQ_MODEL = "openai/gpt-oss-20b"
 
 
 # -- Result type ---------------------------------------------------------------
@@ -101,13 +96,10 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
         {"role": "system", "content": _JUSTIFICATION_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    try:
-        raw = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=_msgs, max_tokens=300, temperature=0.1,
-        ).choices[0].message.content.strip()
-    except Exception:
-        from agents.llm_client import gemini_call
-        raw = gemini_call(_msgs, max_tokens=300, temperature=0.1)
+    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    raw = call_llm(_msgs, max_tokens=300, temperature=0.1,
+                   stage="judge_score", model=OPENROUTER_MODEL_FAST)
+    raw = (raw or "").strip()
     if not raw:
         return JudgeResult(judge=judge_id, passed=True, severity="INFO",
                            flags=["Judge unavailable: all LLMs failed"])
@@ -154,13 +146,10 @@ def check_bull_bear_balance(company: str, bear_case: list) -> JudgeResult:
         {"role": "system", "content": _BEAR_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    try:
-        raw = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=_msgs, max_tokens=200, temperature=0.1,
-        ).choices[0].message.content.strip()
-    except Exception:
-        from agents.llm_client import gemini_call
-        raw = gemini_call(_msgs, max_tokens=200, temperature=0.1)
+    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    raw = call_llm(_msgs, max_tokens=200, temperature=0.1,
+                   stage="judge_bear", model=OPENROUTER_MODEL_FAST)
+    raw = (raw or "").strip()
     if not raw:
         return JudgeResult(judge="bull_bear_balance", passed=True, severity="INFO",
                            flags=["Judge unavailable: all LLMs failed"])
@@ -296,13 +285,10 @@ def check_thesis_coherence(
         {"role": "system", "content": _COHERENCE_SYSTEM},
         {"role": "user",   "content": f"Company: {company}\n{summary}"},
     ]
-    try:
-        raw = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=_msgs, max_tokens=80, temperature=0.1,
-        ).choices[0].message.content.strip()
-    except Exception:
-        from agents.llm_client import gemini_call
-        raw = gemini_call(_msgs, max_tokens=80, temperature=0.1)
+    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    raw = call_llm(_msgs, max_tokens=80, temperature=0.1,
+                   stage="judge_coherence", model=OPENROUTER_MODEL_FAST)
+    raw = (raw or "").strip()
     if not raw:
         return JudgeResult(judge="thesis_coherence", passed=True, severity="INFO",
                            flags=["Judge unavailable: all LLMs failed"])

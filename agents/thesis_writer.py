@@ -1,38 +1,14 @@
 # Stage 6 - Investment Thesis Writer
 
-import os
 import json
 from datetime import date
 from pathlib import Path
-from groq import Groq
-
-
-GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
-    """Use fine-tuned OpenAI model if OPENAI_FT_THESIS_MODEL is set, else Groq."""
-    ft_model = os.environ.get("OPENAI_FT_THESIS_MODEL")
-    if ft_model:
-        try:
-            from openai import OpenAI
-            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
-                model=ft_model, messages=messages,
-                max_tokens=max_tokens, temperature=temperature,
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            print(f"  [Warning] OpenAI Thesis model failed ({e}), falling back to Groq.")
-    try:
-        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(messages, max_tokens, temperature, stage="thesis writing")
+    from agents.context import call_llm_with_ft
+    return call_llm_with_ft(messages, max_tokens, temperature,
+                            stage="thesis writing", ft_env_var="OPENAI_FT_THESIS_MODEL")
 
 _FINANCIAL_FINTECH_KEYWORDS = {
     "payment", "fintech", "financial technology", "banking",

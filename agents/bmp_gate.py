@@ -1,37 +1,12 @@
 # Stage 2 - BMP Gate
 
-import os
-from groq import Groq
-
 from agents.context import profile_context as _profile_context, compute_oey
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
-    """Use fine-tuned OpenAI model if OPENAI_FT_BMP_MODEL is set, else Groq."""
-    ft_model = os.environ.get("OPENAI_FT_BMP_MODEL")
-    if ft_model:
-        try:
-            from openai import OpenAI
-            resp = OpenAI(api_key=os.environ["OPENAI_API_KEY"]).chat.completions.create(
-                model=ft_model, messages=messages,
-                max_tokens=max_tokens, temperature=temperature,
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            print(f"  [Warning] OpenAI BMP model failed ({e}), falling back to Groq.")
-    try:
-        resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
-            model=GROQ_MODEL, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] Groq unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(messages, max_tokens, temperature, stage="BMP")
-
-
-GROQ_MODEL = "qwen/qwen3.6-27b"
+    from agents.context import call_llm_with_ft
+    return call_llm_with_ft(messages, max_tokens, temperature,
+                            stage="BMP", ft_env_var="OPENAI_FT_BMP_MODEL")
 
 _BMP_SYSTEM = (
     "You are a disciplined long-term equity analyst using the BMP checklist framework. "
