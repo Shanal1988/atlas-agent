@@ -10,8 +10,6 @@ requests
 python-dotenv
 yfinance
 openai
-exa-py
-tavily-python
 
 # RAG layer
 chromadb

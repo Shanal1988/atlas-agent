@@ -9,9 +9,9 @@ import os
 
 def call_llm(messages: list, max_tokens: int, temperature: float,
              stage: str = "", model: str | None = None) -> str:
-    """Call Gemini (only LLM provider). Returns response string or ""."""
-    from agents.llm_client import gemini_call
-    return gemini_call(messages, max_tokens, temperature, stage=stage)
+    """Call Claude (only LLM provider). Returns response string or ""."""
+    from agents.llm_client import claude_call
+    return claude_call(messages, max_tokens, temperature, stage=stage)
 
 
 def call_llm_with_ft(messages: list, max_tokens: int, temperature: float,

@@ -358,24 +358,14 @@ def extract_from_url(url: str) -> dict:
     """
     content = ""
     try:
-        from tavily import TavilyClient
-        client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY", ""))
-        result = client.extract(urls=[url])
-        if result and result.get("results"):
-            content = result["results"][0].get("raw_content", "")[:8000]
-    except Exception:
-        pass
-
-    if not content:
-        try:
-            from bs4 import BeautifulSoup
-            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup(["script", "style", "nav", "footer"]):
-                tag.decompose()
-            content = soup.get_text(separator="\n", strip=True)[:8000]
-        except Exception as e:
-            return {"error": str(e), "years": [], "income_statement": {}, "balance_sheet": {}, "cash_flow": {}}
+        from bs4 import BeautifulSoup
+        resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer"]):
+            tag.decompose()
+        content = soup.get_text(separator="\n", strip=True)[:8000]
+    except Exception as e:
+        return {"error": str(e), "years": [], "income_statement": {}, "balance_sheet": {}, "cash_flow": {}}
 
     return _llm_extract_financials(content)
 
