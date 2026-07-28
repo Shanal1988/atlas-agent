@@ -421,29 +421,10 @@ Rules:
 Text:
 {content[:14000]}"""
 
-    import anthropic
-    try:
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = resp.content[0].text.strip()
-        # Extract JSON from response
-        if "```" in raw:
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw)
-    except Exception:
-        pass
-
-    # OpenRouter fallback
     try:
         from agents.context import call_llm
         raw = call_llm([{"role": "user", "content": prompt}],
-                       max_tokens=2048, temperature=0, stage="financial_parser")
+                       max_tokens=4096, temperature=0, stage="financial_parser")
         raw = (raw or "").strip()
         if "```" in raw:
             raw = raw.split("```")[1]

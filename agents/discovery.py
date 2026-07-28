@@ -83,15 +83,15 @@ def _resolve_ticker(company_name: str) -> str:
     )
 
     _msgs = [{"role": "user", "content": prompt}]
-    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    from agents.context import call_llm
     raw = call_llm(_msgs, max_tokens=16, temperature=0,
-                   stage="ticker", model=OPENROUTER_MODEL_FAST)
+                   stage="ticker")
     if raw:
         raw = raw.strip().upper()
         ticker = raw.split()[0].strip(".,;:()'\"")
     else:
         print("        -> LLM unavailable, using input as ticker")
-            ticker = company_name.upper().split()[0].strip(".,;:()'\"")
+        ticker = company_name.upper().split()[0].strip(".,;:()'\"")
     print(f"        -> {ticker}")
     return ticker
 

@@ -1,22 +1,14 @@
-# Unified web search abstraction: Brave -> Exa -> Tavily
+# Unified web search abstraction: Exa -> Tavily
 #
 # All agents and server code import web_search() / web_search_content()
-# from here instead of calling Tavily directly.
+# from here instead of calling search APIs directly.
 
 import os
-import requests
 
 
 def web_search(query: str, max_results: int = 4) -> list[dict]:
-    """Search the web via Brave -> Exa -> Tavily fallback chain.
+    """Search the web via Exa -> Tavily fallback chain.
     Returns list of {"title": str, "content": str, "url": str}."""
-
-    brave_key = os.environ.get("BRAVE_API_KEY")
-    if brave_key:
-        try:
-            return _brave_search(query, max_results, brave_key)
-        except Exception as e:
-            print(f"  [Warning] Brave unavailable ({type(e).__name__}), trying Exa...")
 
     exa_key = os.environ.get("EXA_API_KEY")
     if exa_key:
@@ -46,22 +38,6 @@ def web_search_content(query: str, max_results: int = 4) -> str:
 
 
 # -- Provider implementations -------------------------------------------------
-
-def _brave_search(query: str, max_results: int, api_key: str) -> list[dict]:
-    resp = requests.get(
-        "https://api.search.brave.com/res/v1/web/search",
-        headers={"X-Subscription-Token": api_key, "Accept": "application/json"},
-        params={"q": query, "count": max_results},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return [
-        {"title": r.get("title", ""), "content": r.get("description", ""),
-         "url": r.get("url", "")}
-        for r in (data.get("web", {}).get("results", []))[:max_results]
-    ]
-
 
 def _exa_search(query: str, max_results: int, api_key: str) -> list[dict]:
     from exa_py import Exa

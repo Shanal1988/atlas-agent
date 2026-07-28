@@ -6,31 +6,12 @@
 
 import os
 
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash")
-OPENROUTER_MODEL_FAST = os.environ.get("OPENROUTER_MODEL_FAST", "google/gemini-2.5-flash")
-
 
 def call_llm(messages: list, max_tokens: int, temperature: float,
              stage: str = "", model: str | None = None) -> str:
-    """House LLM fallback chain: OpenRouter -> Gemini (-> Claude inside gemini_call)."""
-    from openai import OpenAI
-    effective_model = model or OPENROUTER_MODEL
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        print(f"  [Warning] OPENROUTER_API_KEY not set, trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(messages, max_tokens, temperature, stage=stage)
-    try:
-        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-        resp = client.chat.completions.create(
-            model=effective_model, messages=messages,
-            max_tokens=max_tokens, temperature=temperature,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        print(f"  [Warning] OpenRouter unavailable ({type(e).__name__}), trying Gemini...")
-        from agents.llm_client import gemini_call
-        return gemini_call(messages, max_tokens, temperature, stage=stage)
+    """Call Gemini (only LLM provider). Returns response string or ""."""
+    from agents.llm_client import gemini_call
+    return gemini_call(messages, max_tokens, temperature, stage=stage)
 
 
 def call_llm_with_ft(messages: list, max_tokens: int, temperature: float,

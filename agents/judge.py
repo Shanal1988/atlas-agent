@@ -96,9 +96,9 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
         {"role": "system", "content": _JUSTIFICATION_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    from agents.context import call_llm
     raw = call_llm(_msgs, max_tokens=300, temperature=0.1,
-                   stage="judge_score", model=OPENROUTER_MODEL_FAST)
+                   stage="judge_score")
     raw = (raw or "").strip()
     if not raw:
         return JudgeResult(judge=judge_id, passed=True, severity="INFO",
@@ -146,9 +146,9 @@ def check_bull_bear_balance(company: str, bear_case: list) -> JudgeResult:
         {"role": "system", "content": _BEAR_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    from agents.context import call_llm
     raw = call_llm(_msgs, max_tokens=200, temperature=0.1,
-                   stage="judge_bear", model=OPENROUTER_MODEL_FAST)
+                   stage="judge_bear")
     raw = (raw or "").strip()
     if not raw:
         return JudgeResult(judge="bull_bear_balance", passed=True, severity="INFO",
@@ -285,9 +285,9 @@ def check_thesis_coherence(
         {"role": "system", "content": _COHERENCE_SYSTEM},
         {"role": "user",   "content": f"Company: {company}\n{summary}"},
     ]
-    from agents.context import call_llm, OPENROUTER_MODEL_FAST
+    from agents.context import call_llm
     raw = call_llm(_msgs, max_tokens=80, temperature=0.1,
-                   stage="judge_coherence", model=OPENROUTER_MODEL_FAST)
+                   stage="judge_coherence")
     raw = (raw or "").strip()
     if not raw:
         return JudgeResult(judge="thesis_coherence", passed=True, severity="INFO",
