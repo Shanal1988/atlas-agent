@@ -1,14 +1,13 @@
-# Shared multi-provider LLM client (Groq -> Gemini -> Claude -> OpenAI fallback).
+# Shared multi-provider LLM client (Groq -> Gemini -> OpenRouter fallback).
 #
 # Usage: from agents.llm_client import claude_call
 # Called via call_llm() in agents/context.py.
 
 import os
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-3-7-sonnet-20250219")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-r1-0528:free")
 
 
 def claude_call(
@@ -18,11 +17,10 @@ def claude_call(
     stage:       str = "",
 ) -> str:
     """
-    Primary LLM entrypoint. Tries configured free-tier/primary LLMs in order:
+    Primary LLM entrypoint. Tries configured free-tier LLMs in order:
     1. Groq (if GROQ_API_KEY is set)
     2. Gemini (if GEMINI_API_KEY is set)
-    3. Anthropic Claude (if ANTHROPIC_API_KEY is set)
-    4. OpenAI (if OPENAI_API_KEY is set)
+    3. OpenRouter free tier (if OPENROUTER_API_KEY is set)
     Returns response string, or "" on failure.
     """
     # 1. Groq
@@ -39,22 +37,15 @@ def claude_call(
         if res:
             return res
 
-    # 3. Anthropic Claude
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if anthropic_key:
-        res = _anthropic_call(messages, max_tokens, temperature, stage)
-        if res:
-            return res
-
-    # 4. OpenAI fallback
-    openai_key = os.environ.get("OPENAI_API_KEY", "")
-    if openai_key:
-        res = _openai_call(messages, max_tokens, temperature, stage)
+    # 3. OpenRouter free tier (replaces Anthropic + OpenAI)
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        res = _openrouter_call(messages, max_tokens, temperature, stage)
         if res:
             return res
 
     suffix = f" -- {stage} skipped" if stage else ""
-    print(f"  [Warning] No working LLM API keys configured (GROQ, GEMINI, ANTHROPIC, OPENAI){suffix}.")
+    print(f"  [Warning] No working LLM API keys configured (GROQ, GEMINI, OPENROUTER){suffix}.")
     return ""
 
 
@@ -144,49 +135,55 @@ def _gemini_call(messages: list, max_tokens: int, temperature: float, stage: str
     return ""
 
 
+def _openrouter_call(messages: list, max_tokens: int, temperature: float, stage: str) -> str:
+    """
+    OpenRouter free-tier fallback. Uses the OpenAI-compatible API at
+    https://openrouter.ai/api/v1 with free models. Cycles through models
+    on rate-limit (429) or error, just like the Groq/Gemini providers.
+    """
+    models_to_try = [
+        OPENROUTER_MODEL,
+        "deepseek/deepseek-r1-0528:free",
+        "deepseek/deepseek-chat-v3-0324:free",
+        "meta-llama/llama-4-maverick:free",
+        "qwen/qwen3-235b-a22b:free",
+        "google/gemma-3-27b-it:free",
+        "mistralai/mistral-small-3.1-24b-instruct:free",
+    ]
+    # Deduplicate while preserving order
+    models_to_try = list(dict.fromkeys(models_to_try))
 
-
-def _anthropic_call(messages: list, max_tokens: int, temperature: float, stage: str) -> str:
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-
-        system = ""
-        user_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system = msg["content"]
-            else:
-                user_messages.append(msg)
-
-        kwargs = dict(
-            model=CLAUDE_MODEL,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=user_messages,
-        )
-        if system:
-            kwargs["system"] = system
-
-        resp = client.messages.create(**kwargs)
-        return resp.content[0].text or ""
-    except Exception as e:
-        print(f"  [Warning] Claude unavailable ({type(e).__name__}: {e}), trying next provider...")
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not key:
         return ""
 
+    for m in models_to_try:
+        try:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=key,
+                base_url="https://openrouter.ai/api/v1",
+                default_headers={
+                    "HTTP-Referer": "https://github.com/Shanal1988/atlas-agent",
+                    "X-Title": "Atlas Agent",
+                },
+            )
+            resp = client.chat.completions.create(
+                model=m,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            content = resp.choices[0].message.content or ""
+            if content:
+                return content
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+                print(f"  [Warning] OpenRouter model '{m}' rate-limited (429), trying next model...")
+                continue
+            print(f"  [Warning] OpenRouter model '{m}' unavailable ({type(e).__name__}: {e}), trying next model...")
+            continue
+    return ""
 
-def _openai_call(messages: list, max_tokens: int, temperature: float, stage: str) -> str:
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )
-        return resp.choices[0].message.content or ""
-    except Exception as e:
-        print(f"  [Warning] OpenAI unavailable ({type(e).__name__}: {e}).")
-        return ""
 

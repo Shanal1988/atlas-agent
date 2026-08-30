@@ -7,6 +7,8 @@ import yfinance as yf
 import pandas as pd
 from agents.search_client import web_search, web_search_content
 from agents.guardrails import check_security_type
+import logging
+logger = logging.getLogger(__name__)
 
 
 # -- Constants -----------------------------------------------------------------
@@ -98,19 +100,21 @@ def _resolve_ticker(company_name: str) -> str:
 
     _msgs = [{"role": "user", "content": prompt}]
     from agents.context import call_llm
-    raw = call_llm(_msgs, max_tokens=16, temperature=0,
-                   stage="ticker")
-    if raw:
-        raw = raw.strip().upper()
-        ticker = raw.split()[0].strip(".,;:()'\"")
-    else:
-        print("        -> LLM unavailable, using Yahoo Finance search fallback...")
+    try:
+        raw = call_llm(_msgs, max_tokens=16, temperature=0, stage="ticker")
+        if raw:
+            raw = raw.strip().upper()
+            ticker = raw.split()[0].strip(".,;:()'\"")
+        else:
+            raise Exception("Empty response")
+    except Exception as e:
+        logger.warning(f"  [Warning] LLM unavailable ({type(e).__name__}: {e}). Using Yahoo Finance search fallback...")
         yf_symbol = _search_yf_ticker(company_name)
         if yf_symbol:
             ticker = yf_symbol.upper()
         else:
             ticker = company_name.upper().split()[0].strip(".,;:()'\"")
-    print(f"        -> {ticker}")
+    logger.info(f"        -> {ticker}")
     return ticker
 
 
@@ -864,68 +868,68 @@ def _print_profile(p: dict) -> None:
         for r in revenues
     ) or "N/A"
 
-    print(f"\n{'=' * W}")
-    print(f"  ATLAS: COMPANY DISCOVERY  [{p.get('data_source','?')}]")
-    print(f"{'=' * W}")
-    print(f"  Company      : {p.get('name') or 'N/A'}")
-    print(f"  Ticker       : {p.get('ticker') or 'N/A'}")
-    print(f"  Exchange     : {p.get('exchange') or 'N/A'}")
+    logger.info(f"\n{'=' * W}")
+    logger.info(f"  ATLAS: COMPANY DISCOVERY  [{p.get('data_source','?')}]")
+    logger.info(f"{'=' * W}")
+    logger.info(f"  Company      : {p.get('name') or 'N/A'}")
+    logger.info(f"  Ticker       : {p.get('ticker') or 'N/A'}")
+    logger.info(f"  Exchange     : {p.get('exchange') or 'N/A'}")
     sector   = p.get("sector")   or "N/A"
     industry = p.get("industry") or "N/A"
-    print(f"  Sector / Industry : {sector} / {industry}")
+    logger.info(f"  Sector / Industry : {sector} / {industry}")
 
-    print(f"\n  {'-' * (W - 2)}")
-    print("  --- FINANCIALS ---")
-    print(f"  {'-' * (W - 2)}")
-    print(f"  Market Cap    : {_fmt_num(p.get('market_cap'))}")
-    print(f"  Current Price : {_fmt_num(p.get('current_price'))}")
-    print(f"  P/E Ratio     : {p.get('pe_ratio') or 'N/A'}{tag('pe_ratio')}")
-    print(f"  Beta          : {p.get('beta') or 'N/A'}")
-    print(f"  Revenue (3yr) : {rev_line}{tag('revenues')}")
-    print(f"  Revenue CAGR  : {_fmt_pct(cagr) if cagr is not None else 'N/A'}{tag('revenues')}")
-    print(f"  Free Cash Flow: {_fmt_num(p.get('free_cash_flow'))}{tag('free_cash_flow')}")
-    print(f"  Op. Cash Flow : {_fmt_num(p.get('operating_cash_flow'))}{tag('operating_cash_flow')}")
-    print(f"  Op. Income    : {_fmt_num(p.get('operating_income'))}{tag('operating_income')}")
-    print(f"  ROE           : {_fmt_pct(p.get('roe'))}{tag('roe')}")
-    print(f"  ROCE (avg)    : {_fmt_pct(p.get('roce_avg'))}  Trend: {p.get('roce_trend') or 'N/A'}")
-    print(f"  ROIC (avg)    : {_fmt_pct(p.get('roic_avg'))}  Trend: {p.get('roic_trend') or 'N/A'}")
+    logger.info(f"\n  {'-' * (W - 2)}")
+    logger.info("  --- FINANCIALS ---")
+    logger.info(f"  {'-' * (W - 2)}")
+    logger.info(f"  Market Cap    : {_fmt_num(p.get('market_cap'))}")
+    logger.info(f"  Current Price : {_fmt_num(p.get('current_price'))}")
+    logger.info(f"  P/E Ratio     : {p.get('pe_ratio') or 'N/A'}{tag('pe_ratio')}")
+    logger.info(f"  Beta          : {p.get('beta') or 'N/A'}")
+    logger.info(f"  Revenue (3yr) : {rev_line}{tag('revenues')}")
+    logger.info(f"  Revenue CAGR  : {_fmt_pct(cagr) if cagr is not None else 'N/A'}{tag('revenues')}")
+    logger.info(f"  Free Cash Flow: {_fmt_num(p.get('free_cash_flow'))}{tag('free_cash_flow')}")
+    logger.info(f"  Op. Cash Flow : {_fmt_num(p.get('operating_cash_flow'))}{tag('operating_cash_flow')}")
+    logger.info(f"  Op. Income    : {_fmt_num(p.get('operating_income'))}{tag('operating_income')}")
+    logger.info(f"  ROE           : {_fmt_pct(p.get('roe'))}{tag('roe')}")
+    logger.info(f"  ROCE (avg)    : {_fmt_pct(p.get('roce_avg'))}  Trend: {p.get('roce_trend') or 'N/A'}")
+    logger.info(f"  ROIC (avg)    : {_fmt_pct(p.get('roic_avg'))}  Trend: {p.get('roic_trend') or 'N/A'}")
     roce_hist = p.get("roce_history", [])
     if roce_hist:
         roce_str = "  |  ".join(f"{r['year']}: {_fmt_pct(r.get('roce'))}" for r in roce_hist[:5])
-        print(f"  ROCE History  : {roce_str}")
+        logger.info(f"  ROCE History  : {roce_str}")
     roic_hist = p.get("roic_history", [])
     if roic_hist:
         roic_str = "  |  ".join(f"{r['year']}: {_fmt_pct(r.get('roic'))}" for r in roic_hist[:5])
-        print(f"  ROIC History  : {roic_str}")
+        logger.info(f"  ROIC History  : {roic_str}")
     insider = p.get("insider_ownership_pct")
-    print(f"  Insider Own.  : {_fmt_pct(insider) if insider is not None else 'N/A'}{tag('insider_ownership_pct')}")
+    logger.info(f"  Insider Own.  : {_fmt_pct(insider) if insider is not None else 'N/A'}{tag('insider_ownership_pct')}")
 
-    print(f"\n  {'-' * (W - 2)}")
-    print("  --- QUALITATIVE ---")
-    print(f"  {'-' * (W - 2)}")
-    print(f"  What they do  : {p.get('description', 'N/A')}")
-    print(f"  Primary Moat  : {p.get('moat', 'N/A')}")
+    logger.info(f"\n  {'-' * (W - 2)}")
+    logger.info("  --- QUALITATIVE ---")
+    logger.info(f"  {'-' * (W - 2)}")
+    logger.info(f"  What they do  : {p.get('description', 'N/A')}")
+    logger.info(f"  Primary Moat  : {p.get('moat', 'N/A')}")
     drivers = p.get("growth_drivers", ["N/A", "N/A"])
     risks   = p.get("risk_factors",   ["N/A", "N/A"])
-    print(f"  Growth Driver 1 : {drivers[0]}")
-    print(f"  Growth Driver 2 : {drivers[1]}")
-    print(f"  Risk Factor 1   : {risks[0]}")
-    print(f"  Risk Factor 2   : {risks[1]}")
+    logger.info(f"  Growth Driver 1 : {drivers[0]}")
+    logger.info(f"  Growth Driver 2 : {drivers[1]}")
+    logger.info(f"  Risk Factor 1   : {risks[0]}")
+    logger.info(f"  Risk Factor 2   : {risks[1]}")
 
-    print(f"\n  {'-' * (W - 2)}")
-    print("  --- RECENT NEWS ---")
-    print(f"  {'-' * (W - 2)}")
+    logger.info(f"\n  {'-' * (W - 2)}")
+    logger.info("  --- RECENT NEWS ---")
+    logger.info(f"  {'-' * (W - 2)}")
     for item in p.get("news", []):
         if item and item != "N/A":
-            print(f"  * {item}")
+            logger.info(f"  * {item}")
 
-    print(f"\n{'=' * W}\n")
+    logger.info(f"\n{'=' * W}\n")
 
 
 # -- Entry point ---------------------------------------------------------------
 
 def run(company_name: str) -> dict:
-    print(f"\nAtlas initialised for: {company_name}")
+    logger.info(f"\nAtlas initialised for: {company_name}")
 
     # Step 1 -- ticker resolution
     ticker = _resolve_ticker(company_name)
@@ -933,7 +937,7 @@ def run(company_name: str) -> dict:
     # Normalise US-listed tickers: BRK.B -> BRK-B (dot = share class, not exchange suffix)
     if _is_us_listed(ticker) and "." in ticker:
         ticker = ticker.replace(".", "-")
-        print(f"        -> Normalised to {ticker}")
+        logger.info(f"        -> Normalised to {ticker}")
 
     # Step 1b -- security type check (Guardrail 1: fatal)
     # If the bare ticker resolves to a non-equity (e.g. WISE → US ETF), try
@@ -961,13 +965,13 @@ def run(company_name: str) -> dict:
         fetched_name = _info.get("longName") or _info.get("shortName", "")
         name_ok = _name_matches(company_name, fetched_name)
         if error is None and not name_ok and "." not in ticker:
-            print(f"        -> '{ticker}' resolved to '{fetched_name}' — name mismatch, trying exchange suffixes...")
+            logger.warning(f"        -> '{ticker}' resolved to '{fetched_name}' — name mismatch, trying exchange suffixes...")
             error = "name_mismatch"  # trigger suffix fallback below
 
         if error and "." not in ticker:
             # Bare ticker failed (wrong security type or wrong company) — try international suffixes
             label = "is not an equity" if error != "name_mismatch" else "name mismatch"
-            print(f"        -> {ticker} {label}; trying exchange suffixes...")
+            logger.warning(f"        -> {ticker} {label}; trying exchange suffixes...")
             recovered = False
             for suffix in _SUFFIX_FALLBACKS:
                 candidate = ticker + suffix
@@ -981,20 +985,20 @@ def run(company_name: str) -> dict:
                         ticker = candidate
                         _info  = _cinfo
                         error  = None
-                        print(f"        -> Resolved to {ticker} ({cname})")
+                        logger.info(f"        -> Resolved to {ticker} ({cname})")
                         recovered = True
                         break
                 except Exception:
                     continue
             if not recovered:
                 if error == "name_mismatch":
-                    print(f"        -> Could not find a better match; proceeding with {ticker}")
+                    logger.warning(f"        -> Could not find a better match; proceeding with {ticker}")
                     error = None  # best we can do
                 else:
-                    print(f"\n{error}")
+                    logger.error(f"\n{error}")
                     sys.exit(1)
         elif error:
-            print(f"\n{error}")
+            logger.error(f"\n{error}")
             sys.exit(1)
     except SystemExit:
         raise
@@ -1002,36 +1006,36 @@ def run(company_name: str) -> dict:
         pass  # if yfinance can't return info, let the pipeline continue
 
     # Step 2 -- financial data
-    print(f"  [2/3] Fetching financial data for {ticker}...")
+    logger.info(f"  [2/3] Fetching financial data for {ticker}...")
     financial_data = None
 
     if _is_us_listed(ticker):
-        print("        -> Source: FMP (US-listed)")
+        logger.info("        -> Source: FMP (US-listed)")
         financial_data = _fetch_fmp_data(ticker)
         if financial_data:
             financial_data = _patch_fmp_gaps(financial_data, ticker)
         else:
-            print("        FMP returned no data -- falling back to yfinance")
+            logger.warning("        FMP returned no data -- falling back to yfinance")
             financial_data = _fetch_yfinance_data(ticker)
             if financial_data:
                 financial_data["field_sources"] = {f: "yfinance" for f in _PATCHABLE}
     else:
-        print("        -> Source: yfinance (international)")
+        logger.info("        -> Source: yfinance (international)")
         financial_data = _fetch_yfinance_data(ticker)
         if financial_data:
             financial_data["field_sources"] = {f: "yfinance" for f in _PATCHABLE}
         else:
-            print("        yfinance returned no data -- trying FMP")
+            logger.warning("        yfinance returned no data -- trying FMP")
             financial_data = _fetch_fmp_data(ticker)
             if financial_data:
                 financial_data = _patch_fmp_gaps(financial_data, ticker)
 
     if not financial_data:
-        print(f"\n  Could not retrieve financial data for '{ticker}' from any source.")
+        logger.error(f"\n  Could not retrieve financial data for '{ticker}' from any source.")
         sys.exit(1)
 
     # Step 3 -- qualitative analysis
-    print("  [3/3] Fetching qualitative analysis (Tavily + Groq)...")
+    logger.info("  [3/3] Fetching qualitative analysis (Tavily + Groq)...")
     qualitative = _fetch_qualitative(company_name, ticker)
 
     profile = {**financial_data, **qualitative}
@@ -1039,7 +1043,7 @@ def run(company_name: str) -> dict:
     profile["revenue_cagr"] = _revenue_cagr(profile.get("revenues") or [])
 
     # Compute ROCE / ROIC (3-5 year history)
-    print("        Computing ROCE / ROIC...")
+    logger.info("        Computing ROCE / ROIC...")
     roce_roic = _compute_roce_roic(ticker, _is_us_listed(ticker))
     profile["roce_history"] = roce_roic.get("roce_history", [])
     profile["roic_history"] = roce_roic.get("roic_history", [])
@@ -1049,7 +1053,7 @@ def run(company_name: str) -> dict:
     profile["roic_trend"]   = roce_roic.get("roic_trend")
 
     # Extended fields for process-scoring frameworks (all nullable)
-    print("        Fetching extended financial fields...")
+    logger.info("        Fetching extended financial fields...")
     _enrich_profile(profile, ticker, _is_us_listed(ticker))
 
     _print_profile(profile)
@@ -1061,7 +1065,7 @@ def run(company_name: str) -> dict:
             profile.get("ticker", ""),
             f"{profile.get('sector', '')} {profile.get('industry', '')}",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"RAG auto_index failed: {e}")
 
     return profile

@@ -4,6 +4,8 @@
 # Deterministic floor: V1 (balance sheet) capped at 0.5 when net debt > 0.
 
 from agents.context import profile_context, call_llm
+import logging
+logger = logging.getLogger(__name__)
 
 _SYSTEM = (
     "You are a quality-growth investor running your Ten Vital Signs checklist. "
@@ -81,7 +83,7 @@ def _valuation_summary(valuation: dict | None) -> str:
 def run(profile: dict, bmp_result: dict | None, fisher_result: dict | None,
         valuation_result: dict | None) -> dict:
     company = profile.get("name") or profile.get("ticker", "Unknown")
-    print(f"  [Vital Signs] Scoring 10 vital signs for {company}...")
+    logger.info(f"  [Vital Signs] Scoring 10 vital signs for {company}...")
 
     context = profile_context(profile)
     extra = []

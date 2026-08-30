@@ -1,6 +1,8 @@
 # Stage 2 - BMP Gate
 
 from agents.context import profile_context as _profile_context, compute_oey
+import logging
+logger = logging.getLogger(__name__)
 
 
 def _call_llm(messages: list, max_tokens: int, temperature: float) -> str:
@@ -147,23 +149,23 @@ def _print_gate(profile: dict, answers: list[dict], score: float, verdict: str) 
         "Q5": "PRICE     ",
     }
 
-    print(f"\n{'=' * W}")
-    print("  ATLAS: BMP GATE")
-    print(f"{'=' * W}")
-    print(f"  Company: {profile.get('name', 'N/A')}")
-    print()
+    logger.info(f"\n{'=' * W}")
+    logger.info("  ATLAS: BMP GATE")
+    logger.info(f"{'=' * W}")
+    logger.info(f"  Company: {profile.get('name', 'N/A')}")
+    logger.info("")
 
     for a in answers:
         label_str = q_labels.get(a["label"], a["label"])
         rating    = a["rating"].upper()
         reasoning = a["reasoning"]
-        print(f"  {a['label']} {label_str}: [{rating}]")
-        print(f"           {reasoning}")
-        print()
+        logger.info(f"  {a['label']} {label_str}: [{rating}]")
+        logger.info(f"           {reasoning}")
+        logger.info("")
 
-    print(f"  SCORE:   {score} / 5")
-    print(f"  VERDICT: {verdict}")
-    print(f"{'=' * W}\n")
+    logger.info(f"  SCORE:   {score} / 5")
+    logger.info(f"  VERDICT: {verdict}")
+    logger.info(f"{'=' * W}\n")
 
 
 def run(profile: dict) -> dict:

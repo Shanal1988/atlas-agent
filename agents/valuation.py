@@ -9,6 +9,8 @@
 # No LLM calls – pure arithmetic + yfinance.
 
 import yfinance as yf
+import logging
+logger = logging.getLogger(__name__)
 import pandas as pd
 
 
@@ -619,31 +621,31 @@ def _phases_str(phases: list) -> str:
 
 def _print_dhandho_block(label: str, phases: list, res: dict, shares: float | None,
                          cf_label: str = "FCF") -> None:
-    print(f"\n  {label}  ({_phases_str(phases)})")
-    print(f"  {'Year':<8} {cf_label+' (Mn)':>12}  {'PV of CF (Mn)':>15}")
-    print(f"  {'0 Net Cash':<8} {'':>12}  {res['net_cash']:>15,.0f}")
+    logger.info(f"\n  {label}  ({_phases_str(phases)})")
+    logger.info(f"  {'Year':<8} {cf_label+' (Mn)':>12}  {'PV of CF (Mn)':>15}")
+    logger.info(f"  {'0 Net Cash':<8} {'':>12}  {res['net_cash']:>15,.0f}")
     for row in res["rows"]:
-        print(f"  {row['year']:<8} {row['fcf']:>12,.0f}  {row['pv']:>15,.0f}")
-    print(f"  {'':-<38}")
-    print(f"  {'Sum PV CFs':<24}  {res['pv_sum']:>15,.0f}")
-    print(f"  {'PV Terminal Value':<24}  {res['pv_tv']:>15,.0f}")
-    print(f"  {'Net Cash':<24}  {res['net_cash']:>15,.0f}")
-    print(f"  {'IV Total':<24}  {res['iv']:>15,.0f}")
-    print(f"  -> IV: {_mn(res['iv'])}  |  Per Share: {_price(res['iv'], shares)}")
+        logger.info(f"  {row['year']:<8} {row['fcf']:>12,.0f}  {row['pv']:>15,.0f}")
+    logger.info(f"  {'':-<38}")
+    logger.info(f"  {'Sum PV CFs':<24}  {res['pv_sum']:>15,.0f}")
+    logger.info(f"  {'PV Terminal Value':<24}  {res['pv_tv']:>15,.0f}")
+    logger.info(f"  {'Net Cash':<24}  {res['net_cash']:>15,.0f}")
+    logger.info(f"  {'IV Total':<24}  {res['iv']:>15,.0f}")
+    logger.info(f"  -> IV: {_mn(res['iv'])}  |  Per Share: {_price(res['iv'], shares)}")
 
 
 def _print_dcf_block(res: dict, phases: list, shares: float | None,
                      cf_label: str = "FCF") -> None:
-    print(f"  Growth: {_phases_str(phases)}  |  Terminal: {int(TERMINAL_GROWTH*100)}%")
-    print(f"  {'Year':<8} {cf_label+' (Mn)':>12}  {'PV of CF (Mn)':>15}")
+    logger.info(f"  Growth: {_phases_str(phases)}  |  Terminal: {int(TERMINAL_GROWTH*100)}%")
+    logger.info(f"  {'Year':<8} {cf_label+' (Mn)':>12}  {'PV of CF (Mn)':>15}")
     for row in res["rows"]:
-        print(f"  {row['year']:<8} {row['fcf']:>12,.0f}  {row['pv']:>15,.0f}")
-    print(f"  {'':-<38}")
-    print(f"  {'Sum PV CFs':<24}  {res['pv_sum']:>15,.0f}")
-    print(f"  {'PV Terminal Value':<24}  {res['pv_tv']:>15,.0f}")
-    print(f"  {'Net Cash':<24}  {res['net_cash']:>15,.0f}")
-    print(f"  {'IV Total':<24}  {res['iv']:>15,.0f}")
-    print(f"  -> IV: {_mn(res['iv'])}  |  Per Share: {_price(res['iv'], shares)}")
+        logger.info(f"  {row['year']:<8} {row['fcf']:>12,.0f}  {row['pv']:>15,.0f}")
+    logger.info(f"  {'':-<38}")
+    logger.info(f"  {'Sum PV CFs':<24}  {res['pv_sum']:>15,.0f}")
+    logger.info(f"  {'PV Terminal Value':<24}  {res['pv_tv']:>15,.0f}")
+    logger.info(f"  {'Net Cash':<24}  {res['net_cash']:>15,.0f}")
+    logger.info(f"  {'IV Total':<24}  {res['iv']:>15,.0f}")
+    logger.info(f"  -> IV: {_mn(res['iv'])}  |  Per Share: {_price(res['iv'], shares)}")
 
 
 def _print_valuation(profile: dict, r: dict) -> None:
@@ -661,109 +663,109 @@ def _print_valuation(profile: dict, r: dict) -> None:
     is_fin     = r.get("is_financial", False)
     is_ch      = r.get("is_capex_heavy", False)
 
-    print(f"\n{'=' * W}")
-    print("  ATLAS: INTRINSIC VALUE ANALYSIS")
-    print(f"{'=' * W}")
-    print(f"  Company:         {profile.get('name', 'N/A')}")
+    logger.info(f"\n{'=' * W}")
+    logger.info("  ATLAS: STOCK SELECTION CHECKLIST")
+    logger.info(f"{'=' * W}")
+    logger.info(f"  Company:         {profile.get('name', 'N/A')}")
     if is_fin:
         nopat_method = r.get("nopat_method", "")
         op_income_mn = r.get("op_income_mn")
         nopat_mn     = r.get("nopat_mn")
         ocf_mn_ref   = r.get("ocf_mn")
-        print(f"  Base {cf_label}:   {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))} "
+        logger.info(f"  Base {cf_label}:   {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))} "
               f"(customer float zeroed)")
-        print(f"  Derivation:      Op. Income {_mn(op_income_mn)} → "
+        logger.info(f"  Derivation:      Op. Income {_mn(op_income_mn)} → "
               f"NOPAT {_mn(nopat_mn)} (after-tax)")
-        print(f"  [OCF {_mn(ocf_mn_ref)} excluded — distorted by customer float/deposits]")
+        logger.info(f"  [OCF {_mn(ocf_mn_ref)} excluded — distorted by customer float/deposits]")
         if nopat_method:
-            print(f"  Method:          {nopat_method}")
+            logger.info(f"  Method:          {nopat_method}")
     elif is_ch:
         oe_method    = r.get("oe_method", "")
         maint_mn     = r.get("maint_capex_mn")
         growth_mn    = r.get("growth_capex_mn")
         ocf_mn_ref   = r.get("ocf_mn")
-        print(f"  Base {cf_label}:  {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
-        print(f"  Derivation:      OCF {_mn(ocf_mn_ref)} - Maint. Capex {_mn(maint_mn)}"
+        logger.info(f"  Base {cf_label}:  {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
+        logger.info(f"  Derivation:      OCF {_mn(ocf_mn_ref)} - Maint. Capex {_mn(maint_mn)}"
               f" = Owner Earnings {_mn(base_mn)}")
         maint_method = r.get("oe_method", "")
         if maint_method:
-            print(f"  Maint. method:   {maint_method}")
+            logger.info(f"  Maint. method:   {maint_method}")
         if growth_mn is not None:
-            print(f"  Growth Capex:    {_mn(growth_mn)} excluded"
+            logger.info(f"  Growth Capex:    {_mn(growth_mn)} excluded"
                   f" (creates future cash flows, captured in growth rates)")
         if not maint_mn:
-            print(f"  [D&A unavailable — using raw OCF; maintenance capex not deducted]")
-        print(f"  [FCF {_mn(fcf_mn_ref)} suppressed by growth capex reinvestment cycle]")
+            logger.info(f"  [D&A unavailable — using raw OCF; maintenance capex not deducted]")
+        logger.info(f"  [FCF {_mn(fcf_mn_ref)} suppressed by growth capex reinvestment cycle]")
     else:
-        print(f"  Base {cf_label}:        {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
-    print(f"  Discount Rate:   {int(DISCOUNT_RATE*100)}%  |  Terminal Growth (DCF): {int(TERMINAL_GROWTH*100)}%")
-    print(f"  Current Mkt Cap: {_mn(mktcap)}  |  Share Price: {profile.get('current_price', 'N/A')}")
+        logger.info(f"  Base {cf_label}:        {_mn(base_mn)}  |  Net Cash: {_mn(r.get('net_cash_mn'))}")
+    logger.info(f"  Discount Rate:   {int(DISCOUNT_RATE*100)}%  |  Terminal Growth (DCF): {int(TERMINAL_GROWTH*100)}%")
+    logger.info(f"  Current Mkt Cap: {_mn(mktcap)}  |  Share Price: {profile.get('current_price', 'N/A')}")
 
     # -- Dhandho --
-    print(f"\n  {'-' * (W-2)}")
-    print("  METHOD 1: DHANDHO")
-    print(f"  {'-' * (W-2)}")
+    logger.info(f"\n  {'-' * (W-2)}")
+    logger.info("  METHOD 1: DHANDHO")
+    logger.info(f"  {'-' * (W-2)}")
     if dh:
         _print_dhandho_block("Lower Range",  PHASES_LOWER,  dh["lower"],  shares, cf_label)
         _print_dhandho_block("Higher Range", PHASES_HIGHER, dh["higher"], shares, cf_label)
 
     # -- Ben Graham --
-    print(f"\n  {'-' * (W-2)}")
-    print("  METHOD 2: BEN GRAHAM  (original: Value = Avg_NI x (8.5 + 2G))")
-    print(f"  {'-' * (W-2)}")
+    logger.info(f"\n  {'-' * (W-2)}")
+    logger.info("  METHOD 2: BEN GRAHAM  (original: Value = Avg_NI x (8.5 + 2G))")
+    logger.info(f"  {'-' * (W-2)}")
     avg_ni = gm.get("avg_5yr_ni_mn")
     lo_r, hi_r = gm.get("lo_rate", "N/A"), gm.get("hi_rate", "N/A")
     glo, ghi   = gm.get("lower"), gm.get("higher")
-    print(f"  Avg 5-Yr Net Income: {_mn(avg_ni)}")
-    print(f"  Lower  (G = {lo_r}%): IV = {_mn(glo)}  |  Per Share: {_price(glo, shares)}")
-    print(f"  Higher (G = {hi_r}%): IV = {_mn(ghi)}  |  Per Share: {_price(ghi, shares)}")
+    logger.info(f"  Avg 5-Yr Net Income: {_mn(avg_ni)}")
+    logger.info(f"  Lower  (G = {lo_r}%): IV = {_mn(glo)}  |  Per Share: {_price(glo, shares)}")
+    logger.info(f"  Higher (G = {hi_r}%): IV = {_mn(ghi)}  |  Per Share: {_price(ghi, shares)}")
     if glo is not None and glo < 0:
-        print("  [Note: negative IV signals company fails Graham test at this growth rate]")
+        logger.info("  [Note: negative IV signals company fails Graham test at this growth rate]")
 
     # -- DCF --
-    print(f"\n  {'-' * (W-2)}")
-    print("  METHOD 3: DISCOUNTED CASH FLOW")
-    print(f"  {'-' * (W-2)}")
+    logger.info(f"\n  {'-' * (W-2)}")
+    logger.info("  METHOD 3: DISCOUNTED CASH FLOW")
+    logger.info(f"  {'-' * (W-2)}")
     if dc:
         _print_dcf_block(dc, PHASES_LOWER, shares, cf_label)
 
     # -- Expected Returns --
-    print(f"\n  {'-' * (W-2)}")
-    print("  METHOD 4: EXPECTED RETURNS MODEL")
-    print(f"  {'-' * (W-2)}")
+    logger.info(f"\n  {'-' * (W-2)}")
+    logger.info("  METHOD 4: EXPECTED RETURNS MODEL")
+    logger.info(f"  {'-' * (W-2)}")
     if er:
-        print(f"  NI CAGR (5yr):       {er['ni_cagr_pct']}%")
-        print(f"  Projected NI (10yr): {_mn(er['projected_ni'])}")
-        print(f"  Exit P/E:            {er['exit_pe']:.1f}x  (50% of current P/E, min 15x)")
-        print(f"  Projected Mkt Cap:   {_mn(er['projected_cap'])}")
-        print(f"  Discounted IV:       {_mn(er['iv'])}  |  Per Share: {_price(er['iv'], shares)}")
+        logger.info(f"  NI CAGR (5yr):       {er['ni_cagr_pct']}%")
+        logger.info(f"  Projected NI (10yr): {_mn(er['projected_ni'])}")
+        logger.info(f"  Exit P/E:            {er['exit_pe']:.1f}x  (50% of current P/E, min 15x)")
+        logger.info(f"  Projected Mkt Cap:   {_mn(er['projected_cap'])}")
+        logger.info(f"  Discounted IV:       {_mn(er['iv'])}  |  Per Share: {_price(er['iv'], shares)}")
     else:
-        print("  N/A (insufficient NI or P/E data)")
+        logger.info("  N/A (insufficient NI or P/E data)")
 
     # -- Summary --
-    print(f"\n  {'=' * (W-2)}")
-    print("  INTRINSIC VALUE SUMMARY")
-    print(f"  {'=' * (W-2)}")
+    logger.info(f"\n  {'=' * (W-2)}")
+    logger.info("  INTRINSIC VALUE SUMMARY")
+    logger.info(f"  {'=' * (W-2)}")
     hdr = f"  {'Method':<22}  {'IV Lower':>12}  {'IV Higher':>12}  {'Price Lo / Hi':>16}"
-    print(hdr)
-    print(f"  {'-' * (W-2)}")
+    logger.info(hdr)
+    logger.info(f"  {'-' * (W-2)}")
 
     def _row(label, lo, hi):
         lo_s  = _mn(lo) if lo is not None else "N/A"
         hi_s  = _mn(hi) if hi is not None else "  -"
         pr_lo = _price(lo, shares) if lo is not None else "N/A"
         pr_hi = _price(hi, shares) if hi is not None else "  -"
-        print(f"  {label:<22}  {lo_s:>12}  {hi_s:>12}  {pr_lo:>8} / {pr_hi:<8}")
+        logger.info(f"  {label:<22}  {lo_s:>12}  {hi_s:>12}  {pr_lo:>8} / {pr_hi:<8}")
 
     _row("Dhandho",          dh.get("lower", {}).get("iv"),  dh.get("higher", {}).get("iv"))
     _row("Ben Graham",       glo, ghi)
     _row("DCF",              dc.get("iv") if dc else None, None)
     _row("Expected Returns", er.get("iv") if er else None, None)
 
-    print(f"  {'-' * (W-2)}")
-    print(f"  Current Market Cap:  {_mn(mktcap)}")
-    print(f"  Current Share Price: {profile.get('current_price', 'N/A')}")
-    print()
+    logger.info(f"  {'-' * (W-2)}")
+    logger.info(f"  Current Market Cap:  {_mn(mktcap)}")
+    logger.info(f"  Current Share Price: {profile.get('current_price', 'N/A')}")
+    logger.info("")
 
     # Overall assessment — exclude negative Graham values from range
     dh_lo = dh.get("lower", {}).get("iv")
@@ -776,10 +778,10 @@ def _print_valuation(profile: dict, r: dict) -> None:
         mid = (iv_low + iv_high) / 2
         prem = (mktcap - mid) / mid * 100
         verdict = "OVERVALUED" if prem > 20 else ("UNDERVALUED" if prem < -20 else "FAIRLY VALUED")
-        print(f"  IV Range (ex-Graham): {_mn(iv_low)}  -  {_mn(iv_high)}")
-        print(f"  vs Current Mkt Cap:   {abs(prem):.0f}% {'premium' if prem > 0 else 'discount'} -> {verdict}")
+        logger.info(f"  IV Range (ex-Graham): {_mn(iv_low)}  -  {_mn(iv_high)}")
+        logger.info(f"  vs Current Mkt Cap:   {abs(prem):.0f}% {'premium' if prem > 0 else 'discount'} -> {verdict}")
 
-    print(f"\n{'=' * W}\n")
+    logger.info(f"\n{'=' * W}\n")
 
 
 # -- Entry point ----------------------------------------------------------------
@@ -806,10 +808,10 @@ def run(profile: dict) -> dict:
     if not (fcf_abs and fcf_abs > 0) and not (ocf_abs and ocf_abs > 0):
         op_income_abs = profile.get("operating_income")
         if not (is_financial and op_income_abs and op_income_abs > 0):
-            print(f"\n  [Valuation] FCF/OCF not available for {company} -- skipping.")
+            logger.info(f"\n  [Valuation] FCF/OCF not available for {company} -- skipping.")
             return {"available": False}
 
-    print(f"\n  [Valuation] Fetching supplementary data for {company}...")
+    logger.info(f"\n  [Thesis] Writing investment thesis for {company}...")
     extra = _fetch_extra(ticker)
 
     fcf_mn    = fcf_abs / 1e6 if fcf_abs else None
@@ -843,12 +845,12 @@ def run(profile: dict) -> dict:
             )
             base_mn    = nopat_info["nopat_owner_earnings_mn"]
             base_label = "NOPAT OE"
-            print(f"\n  [Valuation] Financial company detected — OCF {_mn(ocf_mn)} "
-                  f"distorted by customer float.")
-            print(f"  [Valuation] Using NOPAT-based Owner Earnings: {nopat_info['method']}")
+            logger.info(f"\n  [Valuation] Financial company detected — OCF {_mn(ocf_mn)} distorted by customer float.")
+
+            logger.info(f"  [Valuation] Using NOPAT-based Owner Earnings: {nopat_info['method']}")
         else:
-            print(f"\n  [Valuation] Financial company — Operating Income unavailable; "
-                  f"falling back to OCF (results will be distorted).")
+            logger.info(f"\n  [Valuation] Financial company — Operating Income unavailable; falling back to OCF (results will be distorted).")
+
             base_mn    = ocf_mn
             base_label = "OCF"
 
@@ -865,11 +867,9 @@ def run(profile: dict) -> dict:
         )
         base_mn    = oe_info["owner_earnings_mn"]
         base_label = "Owner Earnings"
-        print(f"\n  [Valuation] Capex-heavy mode detected "
-              f"(FCF {_mn(fcf_mn)} = {fcf_abs/ocf_abs*100:.0f}% of OCF {_mn(ocf_mn)}).")
-        print(f"  [Valuation] Maint. capex: {oe_info['method']}")
-        print(f"  [Valuation] OCF {_mn(ocf_mn)} - Maint. Capex {_mn(oe_info.get('maint_capex_mn'))}"
-              f" = Owner Earnings {_mn(base_mn)}")
+        logger.info(f"\n  [Valuation] Capex-heavy mode detected (FCF {_mn(fcf_mn)} = {fcf_abs/ocf_abs*100:.0f}% of OCF {_mn(ocf_mn)}).")
+        logger.info(f"  [Valuation] Maint. capex: {oe_info['method']}")
+        logger.info(f"  [Valuation] OCF {_mn(ocf_mn)} - Maint. Capex {_mn(oe_info.get('maint_capex_mn'))} = Owner Earnings {_mn(base_mn)}")
     elif fcf_abs and fcf_abs > 0:
         base_mn    = fcf_mn
         base_label = "FCF"
@@ -878,7 +878,7 @@ def run(profile: dict) -> dict:
         base_mn    = ocf_mn
         base_label = "OCF"
 
-    print("  [Valuation] Computing Dhandho / Ben Graham / DCF / Expected Returns...")
+    logger.info("\n  [Valuation] Computing Dhandho / Ben Graham / DCF / Expected Returns...")
 
     dh_lower  = _dhandho(base_mn, net_cash_mn, PHASES_LOWER)
     dh_higher = _dhandho(base_mn, net_cash_mn, PHASES_HIGHER)
