@@ -57,9 +57,23 @@ def _is_us_listed(ticker: str) -> bool:
 
 # -- Step 1: Ticker resolution -------------------------------------------------
 
+def _search_yf_ticker(company_name: str) -> str | None:
+    try:
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={requests.utils.quote(company_name)}&quotesCount=1"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            quotes = resp.json().get("quotes", [])
+            if quotes and "symbol" in quotes[0]:
+                return quotes[0]["symbol"]
+    except Exception:
+        pass
+    return None
+
+
 def _resolve_ticker(company_name: str) -> str:
     """
-    Tavily search -> Groq extraction.
+    Tavily search -> Groq extraction with Yahoo Finance fallback.
     Returns ticker with correct exchange suffix (e.g. ADYEN.AS, WISE.L, AAPL).
     """
     print("  [1/3] Resolving ticker...")
@@ -90,10 +104,15 @@ def _resolve_ticker(company_name: str) -> str:
         raw = raw.strip().upper()
         ticker = raw.split()[0].strip(".,;:()'\"")
     else:
-        print("        -> LLM unavailable, using input as ticker")
-        ticker = company_name.upper().split()[0].strip(".,;:()'\"")
+        print("        -> LLM unavailable, using Yahoo Finance search fallback...")
+        yf_symbol = _search_yf_ticker(company_name)
+        if yf_symbol:
+            ticker = yf_symbol.upper()
+        else:
+            ticker = company_name.upper().split()[0].strip(".,;:()'\"")
     print(f"        -> {ticker}")
     return ticker
+
 
 
 # -- Step 2a: FMP data (US-listed) ---------------------------------------------
@@ -273,8 +292,38 @@ def _fetch_yfinance_data(ticker: str) -> dict | None:
     except Exception:
         pass
 
+    # Payables / Merchant settlement float -- balance sheet
+    payables = None
+    try:
+        bs = t.balance_sheet
+        if bs is not None and not bs.empty:
+            for row_name in ("Payables", "Other Payable", "Accounts Payable"):
+                if row_name in bs.index:
+                    vals = bs.loc[row_name].dropna()
+                    if len(vals):
+                        payables = _safe_int(vals.iloc[0])
+                    break
+    except Exception:
+        pass
+
     pe  = info.get("trailingPE")
     roe = info.get("returnOnEquity")
+
+    raw_cash = info.get("totalCash") or info.get("cash")
+    raw_debt = info.get("totalDebt") or 0
+    mcap = info.get("marketCap")
+
+    # Subtract merchant float payables from total cash if total cash includes customer float
+    if raw_cash and payables and raw_cash > payables:
+        corporate_cash = raw_cash - payables
+    else:
+        corporate_cash = raw_cash
+
+    # Compute true EV = Market Cap + Debt - Corporate Cash
+    if mcap and corporate_cash is not None:
+        true_ev = max(mcap + raw_debt - corporate_cash, mcap * 0.5)
+    else:
+        true_ev = info.get("enterpriseValue")
 
     return {
         "name":                 info.get("longName") or info.get("shortName"),
@@ -282,7 +331,12 @@ def _fetch_yfinance_data(ticker: str) -> dict | None:
         "exchange":             info.get("fullExchangeName") or info.get("exchange"),
         "sector":               info.get("sector"),
         "industry":             info.get("industry"),
-        "market_cap":           info.get("marketCap"),
+        "market_cap":           mcap,
+        "enterprise_value":     true_ev,
+        "total_cash":           corporate_cash,
+        "raw_cash":             raw_cash,
+        "merchant_float":       payables,
+        "total_debt":           raw_debt,
         "current_price":        info.get("currentPrice") or info.get("regularMarketPrice"),
         "pe_ratio":             round(pe, 2) if pe else None,
         "beta":                 info.get("beta"),
@@ -294,6 +348,8 @@ def _fetch_yfinance_data(ticker: str) -> dict | None:
         "insider_ownership_pct": info.get("heldPercentInsiders"),
         "data_source":          "yfinance",
     }
+
+
 
 
 # -- Revenue CAGR --------------------------------------------------------------

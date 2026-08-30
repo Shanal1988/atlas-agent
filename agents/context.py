@@ -32,18 +32,21 @@ def call_llm_with_ft(messages: list, max_tokens: int, temperature: float,
 
 _DIGITAL_MATURE_MARGINS = {
     "internet content & information": 0.35,   # Google, Meta
-    "internet retail":                0.12,   # Amazon blended
-    "software - application":         0.25,
+    "internet retail":                0.15,   # Amazon blended
+    "software - application":         0.30,   # Seessel benchmark for SaaS/apps
     "software—application":           0.25,
-    "software - infrastructure":      0.30,
+    "software - infrastructure":      0.35,
     "software—infrastructure":        0.30,
-    "semiconductors":                 0.28,
-    "semiconductor equipment":        0.25,
-    "entertainment":                  0.18,   # Netflix, Disney
-    "consumer electronics":           0.12,
+    "financial technology":           0.35,   # Adyen, Stripe, PayPal platform scale
+    "credit services":                0.35,
+    "payments":                       0.35,
+    "semiconductors":                 0.30,
+    "semiconductor equipment":        0.28,
+    "entertainment":                  0.20,   # Netflix, Disney
+    "consumer electronics":           0.15,
     "information technology services":0.22,
 }
-_DIGITAL_SECTORS = frozenset({"Technology", "Communication Services"})
+_DIGITAL_SECTORS = frozenset({"Technology", "Communication Services", "Financial Services"})
 
 # Segment-weighted mature margins for multi-business conglomerates.
 # Format: ticker -> [(revenue_share, mature_margin, label), ...]
@@ -85,26 +88,39 @@ _SEGMENT_MATURE_MARGINS = {
 
 def compute_oey(profile: dict) -> dict:
     """
-    Compute reported and (Seessel) normalized operating earnings yield.
+    Compute reported and Adam Seessel (EV-based + Growth OpEx Normalized)
+    Operating Earnings Yield (OEY) following 'Where the Money Is' guidelines.
 
-    Returns dict:
-      reported_oey       -- Op. Income x 0.79 / Mkt Cap, in % (or None)
-      normalized_oey     -- active only when materially (>15%) above reported (or None)
-      norm_oey_raw       -- always computed when possible, even if not surfaced
-      mature_margin_pct  -- blended mature operating margin used (fraction, or None)
-      segment_breakdown  -- human-readable segment decomposition (or None)
-      active_oey         -- normalized_oey if it fired, else reported_oey (or None)
-      price_veto         -- True when active_oey < 5% (process rule: earning yield
-                            must exceed 5% before buying); False if OEY unknown
+    Adam Seessel Principles:
+    1. Capital Basis: Use Enterprise Value (EV = Market Cap + Debt - Cash) instead of
+       Market Cap to isolate operating business value for cash-rich digital platforms.
+    2. Growth OpEx Normalization: Add back reinvested growth OpEx (or apply sector mature
+       operating margins) to reflect long-term steady-state earnings power.
+    3. Tax Adjustment: Multiply operating earnings by 0.79 (1 - 21% corporate tax rate).
     """
     revenues   = profile.get("revenues") or []
     market_cap = profile.get("market_cap")
     op_income  = profile.get("operating_income")
 
-    oey = None
-    if op_income and market_cap and market_cap > 0:
-        oey = round((op_income * 0.79 / market_cap) * 100, 2)
+    # Enterprise Value resolution
+    ev = profile.get("enterprise_value")
+    cash = profile.get("total_cash") or 0
+    debt = profile.get("total_debt") or 0
 
+    if not ev and market_cap:
+        ev = max(market_cap + debt - cash, market_cap * 0.5)
+
+    # Capital Denominator: Use EV if available and positive, else Market Cap
+    denom = ev if (ev and ev > 0) else market_cap
+
+    # 1. Reported OEY (Market Cap basis & EV basis)
+    reported_oey_mktcap = round((op_income * 0.79 / market_cap) * 100, 2) if (op_income and market_cap and market_cap > 0) else None
+    reported_oey_ev     = round((op_income * 0.79 / denom) * 100, 2) if (op_income and denom and denom > 0) else None
+
+    # Base reported yield prefers EV per Seessel methodology
+    oey = reported_oey_ev if reported_oey_ev is not None else reported_oey_mktcap
+
+    # 2. Seessel Normalized Operating Margin & Yield
     normalized_oey    = None
     mature_margin_pct = None
     segment_breakdown = None
@@ -115,38 +131,43 @@ def compute_oey(profile: dict) -> dict:
     if ticker_val in _SEGMENT_MATURE_MARGINS:
         segs = _SEGMENT_MATURE_MARGINS[ticker_val]
         mature_margin_pct = round(sum(s * m for s, m, _ in segs), 4)
-        segment_breakdown = " + ".join(
-            f"{lbl} ({s:.0%}×{m:.0%})" for s, m, lbl in segs
-        )
+        segment_breakdown = " + ".join(f"{lbl} ({s:.0%}×{m:.0%})" for s, m, lbl in segs)
     else:
         for key, margin in _DIGITAL_MATURE_MARGINS.items():
             if key in industry_lower:
                 mature_margin_pct = margin
                 break
+    
     if mature_margin_pct is None and sector_val in _DIGITAL_SECTORS:
-        mature_margin_pct = 0.25  # generic tech fallback
+        mature_margin_pct = 0.30  # Seessel software/digital benchmark
 
-    norm_oey_raw = None   # always computed when possible; used even in N/A line
-    if mature_margin_pct and revenues and market_cap and market_cap > 0:
+    norm_oey_raw = None
+    if mature_margin_pct and revenues and denom and denom > 0:
         latest_rev = revenues[0].get("revenue") if revenues else None
         if isinstance(latest_rev, (int, float)) and latest_rev > 0:
             norm_op_income = latest_rev * mature_margin_pct
-            norm_oey_raw   = round((norm_op_income * 0.79 / market_cap) * 100, 2)
-            # Only surface as the active OEY when normalization reveals materially higher earnings power
-            if oey is None or norm_oey_raw > oey * 1.15:
+            norm_oey_raw   = round((norm_op_income * 0.79 / denom) * 100, 2)
+            # Surface Seessel normalized yield if it reveals materially higher (>10%) steady-state earnings power
+            if oey is None or norm_oey_raw > oey * 1.10:
                 normalized_oey = norm_oey_raw
 
+    # Active OEY choice: Seessel Normalized EV Yield if fired, else Reported EV Yield, else Reported MktCap Yield
     active_oey = normalized_oey if normalized_oey is not None else oey
 
     return {
-        "reported_oey":      oey,
-        "normalized_oey":    normalized_oey,
-        "norm_oey_raw":      norm_oey_raw,
-        "mature_margin_pct": mature_margin_pct,
-        "segment_breakdown": segment_breakdown,
-        "active_oey":        active_oey,
-        "price_veto":        active_oey is not None and active_oey < 5.0,
+        "reported_oey":        oey,
+        "reported_oey_mktcap": reported_oey_mktcap,
+        "reported_oey_ev":     reported_oey_ev,
+        "normalized_oey":      normalized_oey,
+        "norm_oey_raw":        norm_oey_raw,
+        "mature_margin_pct":   mature_margin_pct,
+        "segment_breakdown":   segment_breakdown,
+        "enterprise_value":    ev,
+        "net_cash":            cash - debt if (cash or debt) else None,
+        "active_oey":          active_oey,
+        "price_veto":          active_oey is not None and active_oey < 5.0,
     }
+
 
 
 def _fmt_big(n) -> str:

@@ -172,7 +172,8 @@ def _score_with_llm(company: str, profile_ctx: str, evidence: str) -> str:
         {"role": "system", "content": _FISHER_SYSTEM},
         {"role": "user",   "content": user_msg},
     ]
-    return call_llm(_msgs, max_tokens=1024, temperature=0.1, stage="Fisher scoring")
+    return call_llm(_msgs, max_tokens=2500, temperature=0.1, stage="Fisher scoring")
+
 
 
 # -- Parser --------------------------------------------------------------------

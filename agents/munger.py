@@ -57,13 +57,17 @@ def _parse(text: str) -> dict:
                         reasoning = rest[close + 1:].strip()
                 else:
                     parts = rest.split(None, 1)
-                    rating = parts[0].rstrip(".").upper()
-                    reasoning = parts[1] if len(parts) > 1 else ""
+                    if parts:
+                        rating = parts[0].rstrip(".").upper()
+                        reasoning = parts[1] if len(parts) > 1 else ""
+                    else:
+                        rating, reasoning = "TBC", ""
                 break
         if rating not in ("YES", "TBC", "NO"):
             rating = "TBC"
         out[key] = (rating, reasoning)
     return out
+
 
 
 def _price_filter(oey: dict) -> tuple[str, str]:

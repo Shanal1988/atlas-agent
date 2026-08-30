@@ -10,6 +10,10 @@ requests
 python-dotenv
 yfinance
 openai
+groq
+google-genai
+tavily-python
+duckduckgo-search
 
 # RAG layer
 chromadb

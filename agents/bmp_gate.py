@@ -100,9 +100,13 @@ def _parse_answers(text: str) -> list[dict]:
                 else:
                     # No brackets — first word is rating
                     parts = rest.split(None, 1)
-                    rating = parts[0].rstrip(".")
-                    reasoning = parts[1] if len(parts) > 1 else ""
+                    if parts:
+                        rating = parts[0].rstrip(".")
+                        reasoning = parts[1] if len(parts) > 1 else ""
+                    else:
+                        rating, reasoning = "N/A", ""
                 break
+
         # Normalise split "NEEDS" + "MANUAL REVIEW ..." that some models emit
         if rating.upper() == "NEEDS" and reasoning.upper().startswith("MANUAL REVIEW"):
             rating = "NEEDS MANUAL REVIEW"
