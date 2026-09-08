@@ -43,10 +43,12 @@ def print_judge(result: JudgeResult, company: str = "") -> None:
 # -- Judge 1 -- Score Justification Auditor -------------------------------------
 
 _JUSTIFICATION_SYSTEM = (
-    "You are an audit analyst reviewing investment scores against company data. "
-    "For each scored item, check whether the score is consistent with the data provided. "
-    "Flag only items where the score clearly contradicts the data "
-    "(e.g. YES but the data shows losses, or NO but the data shows strong growth). "
+    "You are an audit analyst reviewing investment scores against company data and industry fundamentals. "
+    "For each scored item, check whether the score is consistent with the data provided and fundamental business reality. "
+    "Flag items where: "
+    "1. POSITIVE INCONSISTENCY: Item scored YES/high but the data shows clear failure, deterioration, or unprofitability. "
+    "2. NEGATIVE/LAZY-NO INCONSISTENCY: Item scored NO/0 purely because specific research text was omitted, "
+    "   even though the company's business model, global scale, category leadership, or financial profile clearly satisfy it. "
     "Format each flag as: [KEY]: INCONSISTENT -- one sentence explanation. "
     "Reply only for items with issues. "
     "If all items are consistent with the data, reply exactly: ALL_CONSISTENT"
@@ -55,21 +57,26 @@ _JUSTIFICATION_SYSTEM = (
 
 def audit_score_justification(stage: str, context: str, items: list) -> JudgeResult:
     """
-    Judge 1 -- Check if extreme scores are justified by the company data.
-    stage : 'BMP' | 'FISHER' | 'SELECTION'
+    Judge 1 -- Check if scores (both extreme YES/high and NO/low) are justified.
+    stage : 'BMP' | 'FISHER' | 'SELECTION' | 'RISK'
     items : list of score dicts from the agent's parser.
     """
     judge_id = f"score_justification_{stage.lower()}"
 
-    # Select extreme items only (reduces tokens, focuses on highest-impact scores)
+    # Select extreme items and key NOs to audit
     if stage == "FISHER":
         hi = [x for x in items if x.get("score", 0.5) == 1.0][:3]
         lo = [x for x in items if x.get("score", 0.5) == 0.0][:3]
         extreme = hi + lo
+    elif stage == "RISK":
+        # Audit NO/UNKNOWN judgement questions and top YES questions
+        nos = [x for x in items if x.get("answer") in ("NO", "UNKNOWN") and str(x.get("key", "")).startswith("L")]
+        yes = [x for x in items if x.get("answer") == "YES" and str(x.get("key", "")).startswith("L")][:3]
+        extreme = nos + yes
     else:
         extreme = [x for x in items if x.get("rating", "").upper() in ("YES", "NO")]
 
-    if len(extreme) < 2:
+    if len(extreme) < 1:
         return JudgeResult(judge=judge_id, passed=True, severity="INFO")
 
     # Format items for the prompt
@@ -80,6 +87,11 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
                 f"{item.get('key','?')} {item.get('label','')} "
                 f"[score={item.get('score','?')}]: {item.get('reasoning','')}"
             )
+        elif stage == "RISK":
+            lines.append(
+                f"{item.get('key','?')} {item.get('label','')} "
+                f"[{item.get('answer','?')}]: {item.get('reasoning','')}"
+            )
         else:
             key = item.get("key") or item.get("label", "?")
             lines.append(
@@ -88,7 +100,7 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
 
     user_msg = (
         f"Company data:\n{context}\n\n"
-        f"Scored items to audit ({stage} stage -- extreme scores only):\n"
+        f"Scored items to audit ({stage} stage):\n"
         + "\n".join(lines)
     )
 
@@ -97,7 +109,7 @@ def audit_score_justification(stage: str, context: str, items: list) -> JudgeRes
         {"role": "user",   "content": user_msg},
     ]
     from agents.context import call_llm
-    raw = call_llm(_msgs, max_tokens=300, temperature=0.1,
+    raw = call_llm(_msgs, max_tokens=400, temperature=0.1,
                    stage="judge_score")
     raw = (raw or "").strip()
     if not raw:
@@ -340,10 +352,27 @@ def check_cross_stage_consistency(
             f"1 more NO would move to Marble (3-5%)."
         )
 
-    # All risk factors scored zero -- may be optimistic
-    if factors and all(f.get("penalty", 0) == 0 for f in factors):
-        info_flags.append(
-            "All 5 risk factors scored 0 -- zero penalty may be optimistic; verify manually."
+    # Cross-stage question-level checks
+    risk_qs = {q.get("key"): q.get("answer") for q in risk_result.get("questions", [])}
+    sel_qs  = {a.get("key"): a.get("rating") for a in (selection_result or {}).get("answers", [])}
+    fish_pts = {p.get("key"): p.get("score") for p in (fisher_result or {}).get("points", [])}
+
+    # Moat consistency: Selection Q5 YES / Fisher P11 high vs Risk L6 NO
+    if (sel_qs.get("Q5") == "YES" or (fish_pts.get("P11") or 0) >= 0.75) and risk_qs.get("L6") == "NO":
+        warn_flags.append(
+            "Risk L6 (Moat) is NO, but Selection Q5 / Fisher P11 confirmed strong durable moat advantages."
+        )
+
+    # Management consistency: Fisher P8/P9 high vs Risk L7 NO
+    if ((fish_pts.get("P8") or 0) >= 0.75 and (fish_pts.get("P9") or 0) >= 0.75) and risk_qs.get("L7") == "NO":
+        warn_flags.append(
+            "Risk L7 (CXO tenure) is NO, but Fisher P8/P9 confirmed strong executive tenure and management depth."
+        )
+
+    # Integrity consistency: Fisher P15 high vs Risk L10 NO
+    if (fish_pts.get("P15") or 0) >= 0.75 and risk_qs.get("L10") == "NO":
+        warn_flags.append(
+            "Risk L10 (Fraud-free) is NO, but Fisher P15 confirmed unquestionable management integrity."
         )
 
     all_flags = warn_flags + info_flags

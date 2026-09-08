@@ -53,6 +53,12 @@ SUITE = {
         "selection": (5.0, 8.0),
         "decision":  {"INVEST", "WATCHLIST"},
     },
+    "GOOGL": {
+        "bmp":       (2.0, 4.5),
+        "fisher":    (11.0, 15.0),
+        "selection": (5.0, 8.0),
+        "decision":  {"WATCHLIST", "INVEST"},
+    },
 }
 
 

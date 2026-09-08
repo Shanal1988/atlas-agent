@@ -31,20 +31,20 @@ _CATEGORIES = [
 ]
 
 _LLM_QUESTIONS = {
-    "L1":  "Recognisable brand — do everyday customers or industry buyers know this company's name?",
+    "L1":  "Recognisable brand — do everyday consumers or enterprise B2B buyers know this company's brand name?",
     "L2":  "Diversified buyer base — no single customer accounts for > 20% of revenue? (Score YES for consumer platforms, digital advertising ecosystems with millions of advertisers, enterprise cloud/SaaS providers with broad customer bases, or companies with no >=20% single customer concentration in filings; score NO only if a single client represents >20% of total revenue).",
-    "L3":  "Positive word of mouth — do customers/users actively recommend it or are there enthusiastic fans/developers?",
-    "L4":  "Underdog — is it free of a direct competitor with materially greater resources?",
-    "L5":  "Goliath — is it free of disruptive upstarts attacking its core business?",
-    "L6":  "Moat — are entry barriers high enough that direct competitors pose limited threat?",
-    "L7":  "Top-3 CXOs — do the top three executives have combined leadership/industry tenure over 15 years?",
-    "L8":  "Stock Advisor fit — quality business, proven management, stalwart balance sheet, conscious capitalism?",
-    "L9":  "Rule Breaker fit — at least 4 of 6 Rule Breaker traits (top dog, sustainable advantage, price appreciation, good management, strong brand, seemingly overvalued) and able to withstand a binary outcome?",
-    "L10": "Fraud-free — no history of material accounting fraud or management scandals?",
+    "L3":  "Positive word of mouth — do customers/users actively recommend it or are there enthusiastic fans, power users, or developers? (Score YES for essential consumer products, high-retention software platforms, developer ecosystems, or ubiquitous services with strong brand loyalty; score NO only if product suffers from poor user reputation or high churn).",
+    "L4":  "Underdog — is it an agile challenger/disruptor taking share from slower incumbents, OR free of a dominant rival with 10x greater resources? (Score YES for high-growth challengers disrupting large markets, OR established market leaders who ARE the dominant resource holder in their niche; score NO only if the company is a vulnerable small player battling a far better-funded giant).",
+    "L5":  "Goliath — is it the entrenched market leader with high structural barriers that protect its core business from upstarts? (Score YES for category leaders, platform monopolies/oligopolies, or businesses with strong network effects/switching costs that prevent upstarts from displacing them; score NO only if the company is a vulnerable incumbent being actively displaced by nimble competitors).",
+    "L6":  "Moat — are entry barriers (network effects, switching costs, proprietary data, patents) high enough that direct competitors pose limited threat?",
+    "L7":  "Top-3 CXOs — do the top three executives have combined leadership/industry/company tenure over 15 years? (Score YES if senior leadership (CEO, CFO, CTO/CIO/COO) have collectively spent >15 years in senior executive, founder, or industry leadership roles; score NO only if leadership is entirely inexperienced, unstable, or brand-new with high executive turnover).",
+    "L8":  "Stock Advisor fit — quality business, proven capital allocation, solid balance sheet, conscious capitalism, and long-term shareholder orientation?",
+    "L9":  "Rule Breaker fit — possesses core Rule Breaker traits (top dog/first mover in an important industry, durable competitive advantage, strong past price/operational momentum, visionary leadership, strong brand, or early perceived overvaluation)? (Score YES for innovative market leaders and disruptive growth compounders).",
+    "L10": "Fraud-free — no history of material accounting fraud, regulatory deception, or management integrity scandals?",
     "L11": "Want to know more — is this a business an investor would genuinely enjoy studying deeper?",
     "L12": "Company-specific risk #1 — name the single biggest company-specific risk; is the company positioned to survive it? (YES = survivable)",
     "L13": "Company-specific risk #2 — name the second biggest company-specific risk; is the company positioned to survive it? (YES = survivable)",
-    "L14": "Macro antifragile — is the business bulletproof/antifragile to macro shocks, inflation and natural events?",
+    "L14": "Macro resilience / Antifragile — can the business withstand or benefit from macro inflation, economic downturns, and market volatility through pricing power, essential utility, or net-cash balance sheets? (Score YES if high gross margins, net cash balance sheet, mission-critical utility, or pricing power allow the company to compound through recessions; score NO only for deeply cyclical, debt-heavy, or commodity-dependent businesses vulnerable to macro collapse).",
 }
 
 _LLM_LABELS = {
@@ -254,8 +254,15 @@ def _build_context(profile: dict, bmp_result: dict,
     lines.append(f"BMP Score:         {bmp_result.get('score', 0)}/5   Verdict: {bmp_result.get('verdict', 'N/A')}")
     if fisher_result:
         lines.append(f"Fisher Score:      {fisher_result.get('total', 0)}/15  Rating: {fisher_result.get('rating', 'N/A')}")
+        # Append relevant Fisher points for leadership, sales, and moats
+        for p in (fisher_result.get("points") or []):
+            if p.get("key") in ("P4", "P7", "P8", "P9", "P11", "P14", "P15"):
+                lines.append(f"  Fisher {p['key']} {p.get('label')}: [{p.get('score')}] {p.get('reasoning')}")
     if selection_result:
         lines.append(f"Selection Score:   {selection_result.get('score', 0)}/8   Verdict: {selection_result.get('verdict', 'N/A')}")
+        for a in (selection_result.get("answers") or []):
+            if a.get("key") in ("Q1", "Q3", "Q5", "Q7"):
+                lines.append(f"  Selection {a['key']} {a.get('label')}: [{a.get('rating')}] {a.get('reasoning')}")
     if process_result:
         st = process_result.get("stage") or {}
         lines.append(f"Stage:             {st.get('stage_number')} - {st.get('stage_label')}")
@@ -416,9 +423,12 @@ def run(profile: dict, bmp_result: dict,
         "factors":        [],
     }
 
-    from agents.judge import check_cross_stage_consistency, print_judge
+    from agents.judge import check_cross_stage_consistency, audit_score_justification, print_judge
+    judge_just = audit_score_justification("RISK", context, questions)
+    print_judge(judge_just, company)
     judge_r = check_cross_stage_consistency(fisher_result, selection_result, result)
     print_judge(judge_r, company)
     result["judge"] = judge_r
+    result["judge_justification"] = judge_just
 
     return result
