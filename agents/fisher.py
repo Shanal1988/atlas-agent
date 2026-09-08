@@ -7,8 +7,9 @@ _FISHER_SYSTEM = (
     "Score each of the 15 Fisher points for this company using: "
     "1 (YES), 0.75 (MOSTLY), 0.5 (PARTIAL), or 0 (NO). "
     "For each point provide: score + one sentence of evidence-based reasoning. "
-    "Be honest and rigorous. Partial credit requires real evidence, not assumption. "
-    "If evidence is absent, score 0 and say so.\n\n"
+    "Be honest and rigorous. Evaluate each point using both specific research evidence and fundamental business data "
+    "(such as business model, distribution channels, revenue scale, and operational track record). "
+    "Score 0 only when the company clearly fails the criterion or lacks the capability.\n\n"
     "Reply in this exact format, one point per line, no extra text:\n"
     "P1: [score] Reasoning here.\n"
     "P2: [score] Reasoning here.\n"
@@ -34,7 +35,7 @@ Valid scores: 1 (YES), 0.75 (MOSTLY), 0.5 (PARTIAL), 0 (NO).
 P1  MARKET POTENTIAL:      Does the company have products/services with sufficient market potential for sizable sales increase over several years? (growing TAM, low market penetration, expansion runway)
 P2  MANAGEMENT INNOVATION: Is management determined to develop new products/processes to sustain growth when current lines mature? (R&D investment, new product launches, platform expansion)
 P3  R&D EFFECTIVENESS:     How effective are R&D efforts relative to company size? (R&D % of revenue, product pipeline, patent activity)
-P4  SALES ORGANISATION:    Does the company have an above-average sales organisation? (customer satisfaction signals, sales efficiency, retention)
+P4  SALES ORGANISATION:    Does the company have an above-average sales and distribution organisation? (direct salesforce strength, self-serve/automated ad or distribution engines, go-to-market execution, sales efficiency, customer retention/satisfaction)
 P5  PROFIT MARGINS:        Does the company have worthwhile profit margins? (operating margin > 20% for software/fintech, consistent or improving)
 P6  MARGIN IMPROVEMENT:    What is the company doing to maintain or improve profit margins? Critically: are scale gains being shared with customers (Scale Economics Shared — reinvested into lower prices or better service) or purely extracted as higher margins? Companies that share scale gains build wider, more durable moats by making themselves harder to undercut. (evidence: pricing trends, margin trajectory vs customer value metrics)
 P7  LABOUR RELATIONS:      Does the company have outstanding labour and personnel relations? (Glassdoor signals, employee retention, compensation)
@@ -65,8 +66,8 @@ def _gather_evidence(company: str, ticker: str = "") -> str:
     tavily_queries = {
         "Market expansion & R&D pipeline (P1-P3)":
             f"{company} market expansion R&D pipeline new products",
-        "Employee & customer satisfaction (P4, P7)":
-            f"{company} glassdoor reviews employee satisfaction customer NPS",
+        "Sales organization, go-to-market & employee relations (P4, P7)":
+            f"{company} sales organization enterprise salesforce go to market customer retention glassdoor employee reviews",
         "Profit margins & operational efficiency (P5-P6)":
             f"{company} profit margins operating efficiency cost controls",
         "Management team, leadership depth & CFO (P8-P10)":
@@ -90,8 +91,8 @@ def _gather_evidence(company: str, ticker: str = "") -> str:
                 rag_queries = [
                     ("Market expansion & R&D pipeline (P1-P3)",
                      f"market expansion new products R&D pipeline growth"),
-                    ("Employee & customer satisfaction (P4, P7)",
-                     f"employee satisfaction retention customer reviews NPS"),
+                    ("Sales organization & customer/employee relations (P4, P7)",
+                     f"sales organization go to market enterprise salesforce customer retention employee satisfaction glassdoor NPS"),
                     ("Profit margins & operational efficiency (P5-P6)",
                      f"profit margins operating efficiency cost controls"),
                     ("Management team, leadership depth (P8-P10)",
