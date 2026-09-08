@@ -379,8 +379,9 @@ def run(profile: dict, bmp_result: dict,
                             f"(crushability suggested {crushability_pct}%).")
         final_pct = stage_cap
     if price_veto:
+        hurdle_str = "3.5%" if oey.get("is_elite_compounder") else "5%"
         sizing_notes.append(f"Price veto: operating earnings yield {oey['active_oey']}% "
-                            "< 5% — do not buy until Mr. Market offers a better price.")
+                            f"< {hurdle_str} — do not buy until Mr. Market offers a better price.")
     final_pct = round(final_pct, 2)
 
     sizing = {"crushability_pct": crushability_pct, "stage_cap_pct": stage_cap,

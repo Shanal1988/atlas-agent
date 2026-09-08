@@ -63,7 +63,7 @@ _THESIS_SYSTEM = (
     "Process guardrails for DECISION (these are hard rules from the investor's process): "
     "if the Anti-Fragile score is below 7 the process says IGNORE — never choose INVEST. "
     "If the Crushability category is GLASS BOTTLE or EGG — never choose INVEST. "
-    "If a price veto is flagged (operating earnings yield < 5%) the best allowed decision "
+    "If a price veto is flagged (operating earnings yield below growth-adjusted hurdle) the best allowed decision "
     "is WATCHLIST. When process scores are provided, the DECISION_RATIONALE must reference "
     "the Feroldi quality score and the stage allocation guidance."
 )
@@ -613,7 +613,7 @@ def _format_process_section(munger_result: dict | None,
         for note in ps.get("notes", []):
             lines.append(f"    ! {note}")
     if risk_result.get("price_veto"):
-        lines.append("  Price Veto:      ACTIVE (operating earnings yield < 5%)")
+        lines.append("  Price Veto:      ACTIVE (operating earnings yield below hurdle)")
     return lines
 
 
@@ -929,7 +929,7 @@ def _apply_process_guardrails(sections: dict, risk_result: dict,
     if (risk_result.get("category") or "").upper() in ("GLASS BOTTLE", "EGG"):
         reasons.append(f"Crushability category {risk_result['category']}")
     if risk_result.get("price_veto"):
-        reasons.append("price veto — operating earnings yield < 5%")
+        reasons.append("price veto — operating earnings yield below hurdle")
     if reasons:
         sections["DECISION"] = "WATCHLIST"
         sections["DECISION_RATIONALE"] = (

@@ -69,7 +69,8 @@ def run(profile: dict, bmp_result: dict | None, fisher_result: dict | None,
     oey = compute_oey(profile)
     notes = []
     if oey["price_veto"]:
-        notes.append(f"Operating earnings yield {oey['active_oey']}% < 5% — price veto (wait for Mr. Market).")
+        hurdle_str = "3.5%" if oey.get("is_elite_compounder") else "5%"
+        notes.append(f"Operating earnings yield {oey['active_oey']}% < {hurdle_str} — price veto (wait for Mr. Market).")
     if not stage["do_invest"]:
         notes.append(f"Stage {stage['stage_number']} ({stage['stage_label']}) — process says do not invest.")
 
