@@ -31,16 +31,16 @@ _CATEGORIES = [
 ]
 
 _LLM_QUESTIONS = {
-    "L1":  "Recognisable brand — do everyday customers know this company's name?",
-    "L2":  "Diversified buyer base — no single customer above 20% of revenue?",
-    "L3":  "Positive word of mouth — do customers actively recommend it / are there fans?",
+    "L1":  "Recognisable brand — do everyday customers or industry buyers know this company's name?",
+    "L2":  "Diversified buyer base — no single customer accounts for > 20% of revenue? (Score YES for consumer platforms, digital advertising ecosystems with millions of advertisers, enterprise cloud/SaaS providers with broad customer bases, or companies with no >=20% single customer concentration in filings; score NO only if a single client represents >20% of total revenue).",
+    "L3":  "Positive word of mouth — do customers/users actively recommend it or are there enthusiastic fans/developers?",
     "L4":  "Underdog — is it free of a direct competitor with materially greater resources?",
     "L5":  "Goliath — is it free of disruptive upstarts attacking its core business?",
     "L6":  "Moat — are entry barriers high enough that direct competitors pose limited threat?",
-    "L7":  "Top-3 CXOs — do the top three executives have combined leadership tenure over 15 years?",
+    "L7":  "Top-3 CXOs — do the top three executives have combined leadership/industry tenure over 15 years?",
     "L8":  "Stock Advisor fit — quality business, proven management, stalwart balance sheet, conscious capitalism?",
     "L9":  "Rule Breaker fit — at least 4 of 6 Rule Breaker traits (top dog, sustainable advantage, price appreciation, good management, strong brand, seemingly overvalued) and able to withstand a binary outcome?",
-    "L10": "Fraud-free — no history of fraud or misleading statements/deeds by the company or management?",
+    "L10": "Fraud-free — no history of material accounting fraud or management scandals?",
     "L11": "Want to know more — is this a business an investor would genuinely enjoy studying deeper?",
     "L12": "Company-specific risk #1 — name the single biggest company-specific risk; is the company positioned to survive it? (YES = survivable)",
     "L13": "Company-specific risk #2 — name the second biggest company-specific risk; is the company positioned to survive it? (YES = survivable)",
@@ -57,9 +57,10 @@ _LLM_LABELS = {
 
 _RISK_SYSTEM = (
     "You are a risk analyst running a 25-question 'crushability' checklist for a "
-    "long-term investor. Answer each question with YES or NO based strictly on the "
-    "data provided, with one sentence of reasoning. Be conservative — when in "
-    "doubt, answer NO.\n\n"
+    "long-term investor. Answer each question with YES or NO based on the company data, "
+    "business fundamentals, and industry context provided, with one sentence of reasoning. "
+    "Be rigorous and objective. Answer YES when the business model and evidence clearly satisfy the criterion. "
+    "Answer NO only when the company clearly fails the criterion or exhibits significant risk.\n\n"
     "Reply with one line per question in this exact format, then a final conviction line:\n"
     + "\n".join(f"{k}: [YES/NO] Reasoning." for k in _LLM_QUESTIONS)
     + "\nCONVICTION: [HIGH/MEDIUM/LOW] One sentence overall conviction."
@@ -348,7 +349,7 @@ def run(profile: dict, bmp_result: dict,
              f"Company data and prior stage results:\n{context}\n\n"
              "Answer these 14 judgement questions:\n"
              + "\n".join(f"{k}: {q}" for k, q in _LLM_QUESTIONS.items())}],
-        max_tokens=900, temperature=0.1)
+        max_tokens=1800, temperature=0.1)
     llm_questions, conviction = _parse_llm_questions(raw)
 
     questions = det_questions + llm_questions
