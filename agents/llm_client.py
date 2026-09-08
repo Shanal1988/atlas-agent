@@ -10,6 +10,20 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-r1-0528:free")
 
 
+import re
+
+
+def _clean_response(text: str) -> str:
+    """Strip reasoning/think tags (<think>...</think>) produced by reasoning models."""
+    if not text:
+        return ""
+    # Strip paired <think>...</think>
+    cleaned = re.sub(r"(?is)<think>.*?</think>", "", text)
+    # Strip unclosed <think> if truncated
+    cleaned = re.sub(r"(?is)<think>.*$", "", cleaned)
+    return cleaned.strip()
+
+
 def claude_call(
     messages:    list,
     max_tokens:  int,
@@ -28,21 +42,21 @@ def claude_call(
     if groq_key:
         res = _groq_call(messages, max_tokens, temperature, stage)
         if res:
-            return res
+            return _clean_response(res)
 
     # 2. Gemini
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
     if gemini_key:
         res = _gemini_call(messages, max_tokens, temperature, stage)
         if res:
-            return res
+            return _clean_response(res)
 
     # 3. OpenRouter free tier (replaces Anthropic + OpenAI)
     openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
     if openrouter_key:
         res = _openrouter_call(messages, max_tokens, temperature, stage)
         if res:
-            return res
+            return _clean_response(res)
 
     suffix = f" -- {stage} skipped" if stage else ""
     print(f"  [Warning] No working LLM API keys configured (GROQ, GEMINI, OPENROUTER){suffix}.")

@@ -72,14 +72,17 @@ def _parse(text: str) -> dict:
 
 def _price_filter(oey: dict) -> tuple[str, str]:
     active = oey.get("active_oey")
+    is_elite = oey.get("is_elite_compounder", False)
     which = "normalized" if oey.get("normalized_oey") is not None else "reported"
     if active is None:
         return "TBC", "Operating earnings yield unavailable — price cannot be assessed yet."
     if active >= 5.0:
-        return "YES", f"{which.capitalize()} operating earnings yield of {active}% clears the 5% hurdle."
-    if active >= 3.0:
-        return "TBC", f"{which.capitalize()} OEY of {active}% is below the 5% hurdle — wait for Mr. Market."
-    return "NO", f"{which.capitalize()} OEY of {active}% is priced for perfection (<3%)."
+        return "YES", f"{which.capitalize()} operating earnings yield of {active}% clears the 5% value hurdle."
+    if active >= 3.5 and is_elite:
+        return "YES", f"{which.capitalize()} OEY of {active}% represents fair entry for a high-growth secular compounder (Seessel framework)."
+    if active >= 2.5:
+        return "TBC", f"{which.capitalize()} OEY of {active}% is below the ideal hurdle — monitor for a better entry."
+    return "NO", f"{which.capitalize()} OEY of {active}% is priced for perfection (<2.5%)."
 
 
 def _verdict(filters: list[dict]) -> str:

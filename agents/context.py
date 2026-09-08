@@ -31,57 +31,56 @@ def call_llm_with_ft(messages: list, max_tokens: int, temperature: float,
     return call_llm(messages, max_tokens, temperature, stage=stage)
 
 _DIGITAL_MATURE_MARGINS = {
-    "internet content & information": 0.35,   # Google, Meta
-    "internet retail":                0.15,   # Amazon blended
-    "software - application":         0.30,   # Seessel benchmark for SaaS/apps
-    "software—application":           0.25,
-    "software - infrastructure":      0.35,
-    "software—infrastructure":        0.30,
-    "financial technology":           0.35,   # Adyen, Stripe, PayPal platform scale
-    "credit services":                0.35,
-    "payments":                       0.35,
-    "semiconductors":                 0.30,
-    "semiconductor equipment":        0.28,
-    "entertainment":                  0.20,   # Netflix, Disney
-    "consumer electronics":           0.15,
-    "information technology services":0.22,
+    "internet content & information": 0.38,   # Google, Meta (steady-state digital ad + cloud)
+    "internet retail":                0.16,   # Amazon blended retail + AWS + Ads
+    "software - application":         0.32,   # Seessel benchmark for scaled SaaS/apps
+    "software—application":           0.30,
+    "software - infrastructure":      0.36,   # Scaled infrastructure & database software
+    "software—infrastructure":        0.34,
+    "financial technology":           0.38,   # Adyen, Stripe, PayPal platform scale
+    "credit services":                0.36,
+    "payments":                       0.38,
+    "semiconductors":                 0.32,
+    "semiconductor equipment":        0.30,
+    "entertainment":                  0.22,   # Netflix, Disney
+    "consumer electronics":           0.18,
+    "information technology services":0.24,
 }
 _DIGITAL_SECTORS = frozenset({"Technology", "Communication Services", "Financial Services"})
 
-# Segment-weighted mature margins for multi-business conglomerates.
+# Segment-weighted mature margins for multi-business digital leaders.
+# Sources: Adam Seessel ('Where the Money Is', 2022), 10-K segment reporting, Damodaran.
 # Format: ticker -> [(revenue_share, mature_margin, label), ...]
-# Revenue shares are approximate; refresh annually from 10-K segment data.
-# Sources: Damodaran sector data, company 10-Ks, sell-side comps.
 _SEGMENT_MATURE_MARGINS = {
-    # Amazon: FMP misclassifies as "Specialty Retail"; real mix is 3 distinct businesses
+    # Amazon: 3 distinct businesses (AWS cloud + high-margin ads + scaled retail/logistics)
     "AMZN": [
-        (0.15, 0.35, "AWS"),              # cloud infra; Azure/GCP comp at maturity
-        (0.08, 0.45, "Advertising"),      # ad-tech at scale; Meta/Google comp
-        (0.77, 0.05, "Retail/Logistics"), # e-commerce + fulfilment; thin structural margin
+        (0.16, 0.36, "AWS Cloud"),             # cloud infra at scale; 36% margin
+        (0.09, 0.48, "Advertising"),           # ad-tech at scale; 48% margin
+        (0.75, 0.07, "Retail & Fulfillment"),  # e-commerce + 3P logistics; 7% structural margin
     ],
-    # Alphabet: search dominance + fast-growing cloud suppressed by infra spend
+    # Alphabet: Search dominance + YouTube + Google Cloud reaching AWS/Azure scale
     "GOOGL": [
-        (0.56, 0.42, "Search & Ads"),     # near-mature; durable pricing power
-        (0.10, 0.35, "YouTube"),          # ad-supported video at scale
-        (0.13, 0.28, "Google Cloud"),     # investing heavily; Azure/AWS comp
-        (0.21, 0.12, "Other/Bets"),       # subscriptions, hardware, moonshots
+        (0.56, 0.46, "Search & Core Ads"),     # near-monopoly ad engine; 46% mature margin
+        (0.10, 0.38, "YouTube"),               # ad-supported video at global scale; 38% margin
+        (0.13, 0.34, "Google Cloud"),          # cloud enterprise infrastructure; 34% margin
+        (0.21, 0.18, "Subs, Devices & Other"), # YouTube Premium, hardware, self-funding bets; 18% margin
     ],
-    "GOOG": [                             # same economic exposure, different share class
-        (0.56, 0.42, "Search & Ads"),
-        (0.10, 0.35, "YouTube"),
-        (0.13, 0.28, "Google Cloud"),
-        (0.21, 0.12, "Other/Bets"),
+    "GOOG": [
+        (0.56, 0.46, "Search & Core Ads"),
+        (0.10, 0.38, "YouTube"),
+        (0.13, 0.34, "Google Cloud"),
+        (0.21, 0.18, "Subs, Devices & Other"),
     ],
-    # Meta: core advertising very high-margin; Reality Labs in heavy pre-profit phase
+    # Meta: core Family of Apps ad machine at maturity; Reality Labs pre-profit phase
     "META": [
-        (0.97, 0.48, "Family of Apps"),   # FB/IG/WhatsApp ad engine at maturity
-        (0.03, 0.00, "Reality Labs"),     # deliberate loss; AR/VR platform bet
+        (0.97, 0.50, "Family of Apps"),        # FB/IG/WhatsApp ad engine at maturity; 50% margin
+        (0.03, 0.00, "Reality Labs"),          # discretionary AR/VR moonshot; 0% margin
     ],
-    # Microsoft: three clearly separated segments with different margin profiles
+    # Microsoft: three core cloud and enterprise software pillars
     "MSFT": [
-        (0.43, 0.45, "Intelligent Cloud"),        # Azure + server; highest-margin segment
-        (0.33, 0.40, "Productivity & Business"),  # Office 365, LinkedIn, Dynamics
-        (0.24, 0.22, "More Personal Computing"),  # Windows, Gaming, Bing
+        (0.44, 0.46, "Intelligent Cloud"),        # Azure + server; 46% margin
+        (0.33, 0.42, "Productivity & Business"),  # Office 365, LinkedIn, Dynamics; 42% margin
+        (0.23, 0.25, "More Personal Computing"),  # Windows, Gaming, Bing; 25% margin
     ],
 }
 
@@ -89,28 +88,33 @@ _SEGMENT_MATURE_MARGINS = {
 def compute_oey(profile: dict) -> dict:
     """
     Compute reported and Adam Seessel (EV-based + Growth OpEx Normalized)
-    Operating Earnings Yield (OEY) following 'Where the Money Is' guidelines.
+    Operating Earnings Yield (OEY) following 'Where the Money Is: Value Investing in the Digital Age'.
 
-    Adam Seessel Principles:
-    1. Capital Basis: Use Enterprise Value (EV = Market Cap + Debt - Cash) instead of
-       Market Cap to isolate operating business value for cash-rich digital platforms.
-    2. Growth OpEx Normalization: Add back reinvested growth OpEx (or apply sector mature
-       operating margins) to reflect long-term steady-state earnings power.
-    3. Tax Adjustment: Multiply operating earnings by 0.79 (1 - 21% corporate tax rate).
+    Adam Seessel Digital Value Principles:
+    1. Capital Basis: Enterprise Value (EV = Market Cap + Debt - Cash) isolates the actual
+       operating business price paid by investors, giving full credit for excess cash.
+    2. Growth OpEx Normalization: Digital platforms expense long-term growth investments
+       (speculative R&D + new cohort customer acquisition S&M) through the P&L under GAAP,
+       artificially depressing reported operating earnings. Normalizing for steady-state
+       segment margins and growth OpEx reveals true underlying earnings power.
+    3. Tax Adjustment: Multiply operating earnings by 0.79 (standard 21% corporate tax rate).
+    4. Dynamic Growth Hurdle: A 5% yield (20x EV/NOPAT) is a rare table-pounding bargain for
+       a compounder, while 3.5%-5.0% is a fair and attractive price for secular compounders
+       growing revenue at >12-15% with high ROE/ROIC.
     """
     revenues   = profile.get("revenues") or []
     market_cap = profile.get("market_cap")
     op_income  = profile.get("operating_income")
 
     # Enterprise Value resolution
-    ev = profile.get("enterprise_value")
-    cash = profile.get("total_cash") or 0
+    cash = profile.get("total_cash") or profile.get("cash_and_equivalents") or 0
     debt = profile.get("total_debt") or 0
+    ev   = profile.get("enterprise_value")
 
     if not ev and market_cap:
         ev = max(market_cap + debt - cash, market_cap * 0.5)
 
-    # Capital Denominator: Use EV if available and positive, else Market Cap
+    # Denominator: Prefer EV to isolate operating enterprise
     denom = ev if (ev and ev > 0) else market_cap
 
     # 1. Reported OEY (Market Cap basis & EV basis)
@@ -120,7 +124,7 @@ def compute_oey(profile: dict) -> dict:
     # Base reported yield prefers EV per Seessel methodology
     oey = reported_oey_ev if reported_oey_ev is not None else reported_oey_mktcap
 
-    # 2. Seessel Normalized Operating Margin & Yield
+    # 2. Seessel Normalized Operating Margin & Yield Derivation
     normalized_oey    = None
     mature_margin_pct = None
     segment_breakdown = None
@@ -137,22 +141,48 @@ def compute_oey(profile: dict) -> dict:
             if key in industry_lower:
                 mature_margin_pct = margin
                 break
-    
+
     if mature_margin_pct is None and sector_val in _DIGITAL_SECTORS:
-        mature_margin_pct = 0.30  # Seessel software/digital benchmark
+        mature_margin_pct = 0.32  # Seessel software/digital baseline
 
     norm_oey_raw = None
-    if mature_margin_pct and revenues and denom and denom > 0:
-        latest_rev = revenues[0].get("revenue") if revenues else None
-        if isinstance(latest_rev, (int, float)) and latest_rev > 0:
-            norm_op_income = latest_rev * mature_margin_pct
-            norm_oey_raw   = round((norm_op_income * 0.79 / denom) * 100, 2)
-            # Surface Seessel normalized yield if it reveals materially higher (>10%) steady-state earnings power
-            if oey is None or norm_oey_raw > oey * 1.10:
-                normalized_oey = norm_oey_raw
+    norm_op_income = None
+    derivation_str = ""
 
-    # Active OEY choice: Seessel Normalized EV Yield if fired, else Reported EV Yield, else Reported MktCap Yield
+    latest_rev = revenues[0].get("revenue") if revenues else None
+    if isinstance(latest_rev, (int, float)) and latest_rev > 0 and denom and denom > 0:
+        if mature_margin_pct:
+            norm_op_income = latest_rev * mature_margin_pct
+            # If reported operating income is already higher than baseline, retain reported as floor
+            if op_income and op_income > norm_op_income:
+                norm_op_income = op_income
+            norm_oey_raw = round((norm_op_income * 0.79 / denom) * 100, 2)
+            normalized_oey = norm_oey_raw
+            derivation_str = (
+                f"Seessel steady-state operating margin ({mature_margin_pct:.1%}"
+                + (f" across {segment_breakdown}" if segment_breakdown else "")
+                + f") on ${latest_rev/1e9:,.1f}B revenue = ${norm_op_income/1e9:,.1f}B Normalized EBIT "
+                + f"(${norm_op_income*0.79/1e9:,.1f}B after-tax) on ${denom/1e9:,.1f}B EV"
+            )
+
+    # Active OEY choice: Seessel Normalized EV Yield if available, else Reported EV Yield
     active_oey = normalized_oey if normalized_oey is not None else oey
+
+    # 3. Dynamic Price Veto Logic per Seessel
+    cagr_raw = profile.get("revenue_cagr") if profile.get("revenue_cagr") is not None else profile.get("revenue_growth_pct")
+    cagr = cagr_raw if cagr_raw is not None else 0.0
+    roe = profile.get("roe") or 0.0
+    is_elite_compounder = (cagr >= 0.12 or roe >= 0.20)
+
+    # Price Veto condition:
+    # - For elite compounders (growth >= 12% or ROE >= 20%): hurdle is 3.5% (fair value entry)
+    # - For moderate growers: hurdle is 5.0%
+    if active_oey is None:
+        price_veto = False
+    elif is_elite_compounder:
+        price_veto = active_oey < 3.5
+    else:
+        price_veto = active_oey < 5.0
 
     return {
         "reported_oey":        oey,
@@ -165,9 +195,10 @@ def compute_oey(profile: dict) -> dict:
         "enterprise_value":    ev,
         "net_cash":            cash - debt if (cash or debt) else None,
         "active_oey":          active_oey,
-        "price_veto":          active_oey is not None and active_oey < 5.0,
+        "is_elite_compounder": is_elite_compounder,
+        "price_veto":          price_veto,
+        "derivation":          derivation_str,
     }
-
 
 
 def _fmt_big(n) -> str:
@@ -219,6 +250,7 @@ def profile_context(profile: dict) -> str:
     norm_oey_raw      = o["norm_oey_raw"]
     mature_margin_pct = o["mature_margin_pct"]
     segment_breakdown = o["segment_breakdown"]
+    derivation_str    = o.get("derivation", "")
 
     fcf_yield = None
     if fcf and market_cap and market_cap > 0:
@@ -230,22 +262,15 @@ def profile_context(profile: dict) -> str:
         f"Exchange:          {profile.get('exchange', 'N/A')}",
         f"Sector/Industry:   {profile.get('sector', 'N/A')} / {profile.get('industry', 'N/A')}",
         f"Market Cap:        {market_cap if market_cap else 'N/A'}",
+        f"Enterprise Value:  {o.get('enterprise_value') if o.get('enterprise_value') else 'N/A'}",
         f"Current Price:     {profile.get('current_price', 'N/A')}",
         f"P/E Ratio:         {pe if pe else 'N/A'}",
         f"Earnings Yield:    {earnings_yield}%" if earnings_yield else "Earnings Yield:    N/A",
-        f"Op. Earnings Yield:{oey}% (Op. Income x 0.79 / Mkt Cap)" if oey is not None else "Op. Earnings Yield: N/A",
+        f"Op. Earnings Yield:{oey}% (Op. Income x 0.79 / EV)" if oey is not None else "Op. Earnings Yield: N/A",
         *(
-            # Normalization fires: show as the active OEY with full segment derivation
-            [f"Normalized OEY:    {normalized_oey}% "
-             f"({'Segments: ' + segment_breakdown + ' → ' if segment_breakdown else ''}"
-             f"{mature_margin_pct:.1%} blended op margin × Rev × 0.79 / Mkt Cap) [Seessel — USE THIS for Q5]"]
+            [f"Normalized OEY:    {normalized_oey}% [Seessel 'Where the Money Is' — USE THIS for Q5 / F4]\n"
+             f"  Derivation:      {derivation_str}"]
             if normalized_oey is not None else
-            # Segment data exists but current margins already near mature — show computed OEY for transparency
-            [f"Normalized OEY:    N/A — computed {norm_oey_raw}% OEY (mature blended op margin {mature_margin_pct:.1%}: "
-             f"{segment_breakdown}) is not materially above reported OEY {oey}%; "
-             f"use reported OEY for Q5"]
-            if segment_breakdown and norm_oey_raw is not None else
-            # No segment data but segment_breakdown set (shouldn't occur) or no data at all
             ["Normalized OEY:    N/A (traditional business or margins not suppressed by reinvestment)"]
         ),
         f"FCF Yield:         {fcf_yield}% (FCF / Mkt Cap)" if fcf_yield is not None else "FCF Yield:          N/A",

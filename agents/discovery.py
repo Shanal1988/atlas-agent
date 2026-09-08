@@ -103,8 +103,11 @@ def _resolve_ticker(company_name: str) -> str:
     try:
         raw = call_llm(_msgs, max_tokens=16, temperature=0, stage="ticker")
         if raw:
-            raw = raw.strip().upper()
-            ticker = raw.split()[0].strip(".,;:()'\"")
+            import re
+            cleaned_raw = re.sub(r"(?is)<think>.*?</think>", "", raw).strip().upper()
+            ticker = cleaned_raw.split()[0].strip(".,;:()'\"`") if cleaned_raw else ""
+            if not ticker or "<" in ticker or ">" in ticker:
+                raise Exception(f"Invalid ticker parsed: {raw!r}")
         else:
             raise Exception("Empty response")
     except Exception as e:

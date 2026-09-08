@@ -49,23 +49,20 @@ Criteria: revenue CAGR > 10% over 3 years, positive operating cash flow (OCF).
 
 Q5 PRICE SANITY: Is the company's earnings power reasonably priced?
 
-STEP 1 — Reported OEY = Operating Income × 0.79 / Market Cap × 100.
-Strips GAAP noise (stock comp, amortisation) to approximate after-tax earnings power.
-Use this for traditional businesses (industrials, consumer, financial, etc.).
+STEP 1 — Reported OEY = Operating Income × 0.79 / EV × 100.
+Strips GAAP noise (stock comp, amortisation) and credits net cash to approximate after-tax operating earnings power.
+Use this for traditional businesses or companies with mature margins.
 
-STEP 2 — Normalized OEY (digital/tech companies only, Seessel "Where the Money Is"):
-If Normalized OEY is provided in the data, use it instead for companies suppressing margins
-via heavy growth reinvestment in R&D, S&M, or infrastructure build-out.
-Formula: Revenue × Sector Mature Operating Margin × 0.79 / Market Cap.
-Logic: a company with 60%+ gross margins but <10% operating margin is almost certainly
-reinvesting, not structurally unprofitable. At maturity, margins revert to sector norms.
-→ Use Normalized OEY when it is provided AND materially higher than Reported OEY.
-→ State which OEY you are using in your reasoning.
+STEP 2 — Normalized OEY (digital/tech companies, Adam Seessel "Where the Money Is"):
+Use Normalized OEY when provided in the data. It normalizes for steady-state segment operating margins
+and growth OpEx (reinvested R&D and S&M) that GAAP requires companies to expense immediately through the P&L.
+Formula: Normalized Operating Income × 0.79 / Enterprise Value.
+→ Use Normalized OEY when provided. State the OEY value and derivation in your reasoning.
 
-Thresholds (apply to whichever OEY is relevant):
-YES     -- OEY >= 5%.  Clear value or fair entry.
-PARTIAL -- OEY 3-5%.  Expensive but justifiable if growth is strong.
-NO      -- OEY < 3%.  Priced for perfection, limited margin of safety.
+Thresholds (apply to whichever active OEY is provided):
+YES     -- OEY >= 5.0% (Clear value entry), OR OEY >= 3.5% for high-growth secular compounders (>12% CAGR, high ROIC).
+PARTIAL -- OEY 2.5% - 3.5%. Demanding valuation; requires patience / monitoring for entry.
+NO      -- OEY < 2.5%. Priced for perfection, limited margin of safety.
 NEEDS MANUAL REVIEW -- Operating Income missing, negative, or unavailable.
 
 Reply in this exact format. Each answer must be on one line. Do not use curly braces:
