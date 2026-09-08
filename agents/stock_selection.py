@@ -34,7 +34,7 @@ Q3 TEN YEAR DURABILITY:  What is this company's 10-year destination? Apply Nomad
 Q4 BUFFETT DOLLAR TEST:  For every $1 retained, has the company created more than $1 of market value? Use the Buffett Ratio provided. Ratio > 1.0 = YES, 0.5-1.0 = PARTIAL, < 0.5 or negative = NO.
 Q5 MOAT DURABILITY:      Does the competitive advantage look durable for the next decade? Look for structural moat - switching costs or network effects that compound over time.
 Q6 MANAGEMENT QUALITY:   Do managers think and act like long-term owners — building the moat rather than harvesting it? Look for insider ownership (>15% ideal), buybacks vs dilution, reinvestment into customer value and competitive position over short-term margin extraction, and a demonstrated willingness to sacrifice near-term profits to widen the moat.
-Q7 CAPEX INTENSITY:      Is the business asset-light? Use Capex % of Revenue provided. < 5% = YES, 5-15% = PARTIAL, > 15% = NO.
+Q7 CAPEX INTENSITY:      Is the core business asset-light based on true maintenance capital expenditure? Evaluate Maintenance Capex % of Revenue alongside Total Capex and Growth Capex provided. Total capex often includes substantial discretionary growth investments (e.g., expanding AI compute/data centers, building new capacity, scaling logistics/fleet) which create future earnings power rather than just sustaining existing operations. Score YES if maintenance capex is asset-light (< 5% of revenue) even if heavy growth capex is currently deployed. Maintenance Capex < 5% = YES, 5-12% = PARTIAL, > 12% = NO (heavy ongoing replacement needed to maintain existing assets).
 Q8 FREE CASH FLOW:       Does the company generate strong and consistent free cash flow? Look for FCF margin > 15%, FCF growth trend, FCF/Net Income conversion > 0.8.
 """
 
@@ -65,6 +65,54 @@ def _is_financial_company(profile: dict) -> bool:
     return False
 
 
+# -- Maintenance Capex Estimation Factors --------------------------------------
+
+_AMORT_CASH_FACTOR: dict = {
+    "Technology":              0.08,
+    "Communication Services":  0.12,
+    "Consumer Cyclical":       0.15,
+    "Consumer Defensive":      0.15,
+    "Healthcare":              0.18,
+    "Industrials":             0.15,
+    "Financial Services":      0.08,
+    "Utilities":               0.20,
+    "Energy":                  0.15,
+    "Real Estate":             0.12,
+    "Basic Materials":         0.15,
+    "default":                 0.15,
+}
+
+_DA_BLENDED_FACTOR: dict = {
+    "Technology":              0.55,
+    "Communication Services":  0.69,
+    "Consumer Cyclical":       0.87,
+    "Consumer Defensive":      0.83,
+    "Healthcare":              0.67,
+    "Industrials":             0.87,
+    "Financial Services":      0.45,
+    "Utilities":               0.92,
+    "Energy":                  0.87,
+    "Real Estate":             0.91,
+    "Basic Materials":         0.89,
+    "default":                 0.70,
+}
+
+_INDUSTRY_MAINT_BENCHMARK_PCT: dict = {
+    "Technology":              3.5,
+    "Financial Services":      2.0,
+    "Communication Services":  5.0,
+    "Consumer Cyclical":       4.5,
+    "Consumer Defensive":      4.0,
+    "Healthcare":              4.5,
+    "Industrials":             6.5,
+    "Energy":                  8.0,
+    "Basic Materials":         8.0,
+    "Real Estate":             4.0,
+    "Utilities":               9.0,
+    "default":                 4.5,
+}
+
+
 # -- yfinance additional data fetch --------------------------------------------
 
 def _safe_float(val) -> float | None:
@@ -74,12 +122,12 @@ def _safe_float(val) -> float | None:
         return None
 
 
-def _fetch_additional_data(ticker: str) -> dict:
+def _fetch_additional_data(ticker: str, profile: dict | None = None) -> dict:
     """
     Fetch the extra yfinance fields needed for this checklist:
     - Net Income history (earnings consistency + Buffett test)
     - Diluted Average Shares (to compute EPS)
-    - Capital Expenditure (capex intensity)
+    - Capital Expenditure (total, maintenance, and growth capex breakdown)
     - Historical market cap ~5yr ago (Buffett test)
     """
     result = {
@@ -88,6 +136,11 @@ def _fetch_additional_data(ticker: str) -> dict:
         "capex_latest":         None,
         "revenue_latest":       None,
         "capex_pct":            None,
+        "maint_capex_latest":   None,
+        "growth_capex_latest":  None,
+        "maint_capex_pct":      None,
+        "growth_capex_pct":     None,
+        "maint_capex_method":   "",
         "mcap_5yr_ago":         None,
         "buffett_ratio":        None,
         "operating_cash_flow":  None,   # OCF fallback for financial companies
@@ -120,8 +173,9 @@ def _fetch_additional_data(ticker: str) -> dict:
                 result["net_income_history"].append({"year": str(col.year), "net_income": ni})
 
         # -- Capex and revenue for capex % --
-        capex_keys = ["Capital Expenditure"]
-        rev_keys   = ["Total Revenue"]
+        capex_keys = ["Capital Expenditure", "Capital Expenditures",
+                      "Purchase Of PPE", "Purchase Of Property Plant And Equipment"]
+        rev_keys   = ["Total Revenue", "Operating Revenue"]
         capex = None
         rev   = None
 
@@ -135,11 +189,73 @@ def _fetch_additional_data(ticker: str) -> dict:
                 rev = _safe_float(fin.loc[k].iloc[0])
                 break
 
-        result["capex_latest"]  = capex
+        result["capex_latest"]   = capex
         result["revenue_latest"] = rev
 
-        if capex is not None and rev and rev > 0:
-            result["capex_pct"] = round(abs(capex) / rev * 100, 2)
+        # -- Maintenance vs Growth Capex Estimation --
+        depr = None
+        amort = None
+        da = None
+
+        if cf is not None and not cf.empty:
+            for k in ("Depreciation", "Depreciation Of PPE", "Depreciation Tangible Assets"):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None and val > 0:
+                        depr = val
+                        break
+
+            for k in ("Amortization Of Intangibles", "Amortization Of Acquired Intangibles", "Amortization"):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None and val > 0:
+                        amort = val
+                        break
+
+            for k in ("Depreciation Amortization Depletion", "Depreciation And Amortization", "Reconciled Depreciation"):
+                if k in cf.index:
+                    val = _safe_float(cf.loc[k].iloc[0])
+                    if val is not None and val > 0:
+                        da = val
+                        break
+
+        if da is None and (depr or amort):
+            da = (depr or 0.0) + (amort or 0.0)
+
+        sector = (profile.get("sector") or "") if profile else ""
+        maint_capex = None
+        maint_method = ""
+
+        if depr is not None and amort is not None:
+            amort_factor = _AMORT_CASH_FACTOR.get(sector, _AMORT_CASH_FACTOR["default"])
+            maint_capex = depr + amort * amort_factor
+            maint_method = f"Physical depr (${depr/1e6:,.1f}M) + Intangible amort (${amort/1e6:,.1f}M x {amort_factor:.0%})"
+        elif depr is not None and depr > 0:
+            maint_capex = depr
+            maint_method = f"Physical depreciation (${depr/1e6:,.1f}M) [100% real maintenance cost]"
+        elif da is not None and da > 0:
+            factor = _DA_BLENDED_FACTOR.get(sector, _DA_BLENDED_FACTOR["default"])
+            maint_capex = da * factor
+            maint_method = f"D&A (${da/1e6:,.1f}M) x {factor:.0%} sector blended maintenance factor [{sector or 'default'}]"
+        elif rev and rev > 0:
+            bench_pct = _INDUSTRY_MAINT_BENCHMARK_PCT.get(sector, _INDUSTRY_MAINT_BENCHMARK_PCT["default"])
+            maint_capex = rev * (bench_pct / 100.0)
+            maint_method = f"Industry benchmark assumption ({bench_pct}% of revenue for {sector or 'general'})"
+
+        if capex is not None:
+            tot_capex = abs(capex)
+            if rev and rev > 0:
+                result["capex_pct"] = round(tot_capex / rev * 100, 2)
+
+            if maint_capex is not None:
+                maint_capex = min(maint_capex, tot_capex)
+                growth_capex = max(0.0, tot_capex - maint_capex)
+                result["maint_capex_latest"]  = maint_capex
+                result["growth_capex_latest"] = growth_capex
+                result["maint_capex_method"]  = maint_method
+                if rev and rev > 0:
+                    result["maint_capex_pct"]  = round(maint_capex / rev * 100, 2)
+                    result["growth_capex_pct"] = round(growth_capex / rev * 100, 2)
 
         # -- Operating Cash Flow (Q8 substitute for financial companies) --
         ocf_keys = ["Operating Cash Flow",
@@ -206,10 +322,16 @@ def _build_context(profile: dict, extra: dict) -> str:
         if n["net_income"] is not None
     ) or "N/A"
 
-    capex_pct     = extra.get("capex_pct")
-    buffett_ratio = extra.get("buffett_ratio")
-    is_fin        = _is_financial_company(profile)
-    ocf           = extra.get("operating_cash_flow")
+    capex_pct        = extra.get("capex_pct")
+    maint_capex_pct  = extra.get("maint_capex_pct")
+    growth_capex_pct = extra.get("growth_capex_pct")
+    maint_method     = extra.get("maint_capex_method", "")
+    tot_capex        = extra.get("capex_latest")
+    maint_capex      = extra.get("maint_capex_latest")
+    growth_capex     = extra.get("growth_capex_latest")
+    buffett_ratio    = extra.get("buffett_ratio")
+    is_fin           = _is_financial_company(profile)
+    ocf              = extra.get("operating_cash_flow")
 
     latest_rev = revenues[0].get("revenue") if revenues else None
 
@@ -276,7 +398,9 @@ def _build_context(profile: dict, extra: dict) -> str:
         f"Growth Drivers:      {'; '.join(profile.get('growth_drivers', []))}",
         f"Risk Factors:        {'; '.join(profile.get('risk_factors', []))}",
         f"--- Computed Metrics ---",
-        f"Capex % of Revenue:  {capex_pct}%" if capex_pct is not None else "Capex % of Revenue:  N/A",
+        f"Total Capex % of Revenue:       {capex_pct}%" if capex_pct is not None else "Total Capex % of Revenue:       N/A",
+        f"Maintenance Capex % of Revenue: {maint_capex_pct}%" + (f" ({maint_method})" if maint_method else "") if maint_capex_pct is not None else "Maintenance Capex % of Revenue: N/A",
+        f"Growth Capex % of Revenue:      {growth_capex_pct}%" + " (discretionary growth investments / capacity expansion)" if growth_capex_pct is not None else "Growth Capex % of Revenue:      N/A",
         f"Buffett Ratio:       {buffett_ratio} (delta market cap / cumulative retained earnings over ~5yr)"
             if buffett_ratio is not None else "Buffett Ratio:       N/A (insufficient history)",
         f"ROCE (avg):          {round(profile.get('roce_avg') * 100, 2)}%  Trend: {profile.get('roce_trend', 'N/A')}"
@@ -373,10 +497,12 @@ def _print_results(profile: dict, answers: list[dict], score: float,
     W    = 48
     name = profile.get("name", "N/A")
 
-    capex_pct     = extra.get("capex_pct")
-    buffett_ratio = extra.get("buffett_ratio")
-    is_fin        = _is_financial_company(profile)
-    ocf           = extra.get("operating_cash_flow")
+    capex_pct        = extra.get("capex_pct")
+    maint_capex_pct  = extra.get("maint_capex_pct")
+    growth_capex_pct = extra.get("growth_capex_pct")
+    buffett_ratio    = extra.get("buffett_ratio")
+    is_fin           = _is_financial_company(profile)
+    ocf              = extra.get("operating_cash_flow")
 
     print(f"\n{'=' * W}")
     print("  ATLAS: STOCK SELECTION CHECKLIST")
@@ -389,8 +515,11 @@ def _print_results(profile: dict, answers: list[dict], score: float,
         suffix = ""
         if a["key"] == "Q4" and buffett_ratio is not None:
             suffix = f"  (ratio: {buffett_ratio})"
-        if a["key"] == "Q7" and capex_pct is not None:
-            suffix = f"  (capex %: {capex_pct}%)"
+        if a["key"] == "Q7":
+            if maint_capex_pct is not None and capex_pct is not None:
+                suffix = f"  (maint: {maint_capex_pct}%, total: {capex_pct}%, growth: {growth_capex_pct}%)"
+            elif capex_pct is not None:
+                suffix = f"  (capex %: {capex_pct}%)"
         if a["key"] == "Q8" and is_fin:
             suffix = f"  (scored on OCF: {ocf})"
         print(f"  {label_col:<28} [{a['rating']:<7}]  {a['reasoning']}{suffix}")
@@ -421,7 +550,7 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     company = profile.get("name") or ticker
     print(f"\n  [Selection] Fetching additional data for {company}...")
 
-    extra   = _fetch_additional_data(ticker)
+    extra   = _fetch_additional_data(ticker, profile)
     context = _build_context(profile, extra)
 
     print("  [Selection] Scoring checklist via Groq...")
@@ -437,8 +566,12 @@ def run(profile: dict, bmp_verdict: str) -> dict | None:
     print_judge(judge_r, company)
 
     return {
-        "answers": answers,
-        "score":   score,
-        "verdict": _verdict(score),
-        "judge":   judge_r,
+        "answers":            answers,
+        "score":              score,
+        "verdict":            _verdict(score),
+        "judge":              judge_r,
+        "capex_pct":          extra.get("capex_pct"),
+        "maint_capex_pct":    extra.get("maint_capex_pct"),
+        "growth_capex_pct":   extra.get("growth_capex_pct"),
+        "maint_capex_method": extra.get("maint_capex_method"),
     }
