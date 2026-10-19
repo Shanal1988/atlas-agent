@@ -23,3 +23,7 @@ pypdf
 # Financial parser extras
 openpyxl
 beautifulsoup4
+
+# Screener
+pyyaml
+lxml

@@ -136,6 +136,35 @@ python main.py "Alphabet"
 
 ---
 
+## Stock Screener (free tier)
+
+`screen.py` filters whole index universes down to a short list worth a full `main.py` run. It uses **yfinance only** — no FMP calls, no LLM calls, no API keys.
+
+```bash
+python screen.py --list-presets
+python screen.py --refresh-universe                     # download full index constituents (one-off)
+python screen.py --preset seessel_compounders
+python screen.py --preset hidden_gems --regions India --top 30 --save
+python screen.py --universe us_sp500 --filter "roic_avg >= 20%" --filter "pe <= 25" --rank roic_avg:1 pe:-1
+python screen.py --list-metrics
+```
+
+| Preset | Idea |
+|--------|------|
+| `seessel_compounders` | 12%+ revenue CAGR, 15%+ ROIC, clears Atlas's growth-adjusted OEY hurdle |
+| `quality_at_fair_price` | Buffett/Munger: consistently high ROIC, FCF every year, low debt/dilution, P/E ≤ 25 |
+| `hidden_gems` | $300M–$10B caps, 20%+ revenue CAGR still running, net cash |
+| `fast_growers` | Lynch: 20–50% EPS CAGR at PEG ≤ 1.5 |
+| `atlas_quality` | Ranks on the pipeline's own deterministic Quality Screen + Feroldi financial points |
+
+- **Universes** are CSVs in `data/universe/` (S&P 500/400/600, Nasdaq-100, FTSE 100/250, Euro Stoxx 50, Nifty 500). Some ship as small seed lists; `--refresh-universe` replaces them with full constituents from Wikipedia / NSE.
+- **Cache**: each ticker is fetched once and cached in `data/screener/cache.db` for 7 days (`--max-age-days`), so repeat screens are instant. The first run over ~500 tickers takes roughly 15–20 minutes; use `--limit 50` for a quick trial.
+- **Metrics** are in USD and fractions (0.15 = 15%). ROIC/ROCE and OEY use the same formulas as the main pipeline (`compute_oey`, `discovery._roce_roic_yfinance`).
+- Presets are YAML files in `agents/screener/presets/` — copy one to make your own. Rules look like `metric op value` (`>=`, `<`, `==`, `in`, `not in`; values accept `15%`, `2B`, `true`).
+- ROIC and gross margin are not meaningful for banks and insurers; the quality presets exclude Financial Services.
+
+---
+
 ## Project Structure
 
 ```

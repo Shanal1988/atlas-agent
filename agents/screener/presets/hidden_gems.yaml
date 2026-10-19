@@ -1,0 +1,20 @@
+description: >
+  Hidden gems — small/mid caps with 20%+ revenue CAGR that is still running,
+  healthy gross margins, net cash and limited dilution. Multibagger hunting ground.
+universes: [us_midcap400, us_smallcap600, uk_ftse250, india_nifty500]
+missing: fail
+filters:
+  - market_cap_usd >= 300M
+  - market_cap_usd <= 10B
+  - revenue_cagr >= 20%
+  - revenue_growth_q >= 15%
+  - gross_margin >= 35%
+  - operating_margin > 0
+  - net_cash_usd >= 0
+  - share_dilution <= 5%
+rank:
+  revenue_cagr: 0.3
+  revenue_growth_q: 0.2
+  roic_avg: 0.2
+  insider_pct: 0.15
+  ps: -0.15
