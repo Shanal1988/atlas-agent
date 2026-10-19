@@ -88,12 +88,29 @@ def fetch(symbol: str) -> dict | None:
 
     t = yf.Ticker(symbol)
     try:
-        info = t.info or {}
+        info = dict(t.info or {})
     except Exception as e:
         if _is_rate_limit(e):
             raise RateLimited(str(e))
-        return None
-    if not info.get("marketCap") and not (info.get("longName") or info.get("shortName")):
+        info = {}
+
+    # .info often lacks market cap (always for NSE) or fails outright with a
+    # 401 crumb error; fast_info reads the chart API and needs no crumb. Take
+    # shares and raw quote price from it rather than its market cap, so
+    # metrics._market_cap applies the same pence/cents handling either way.
+    if not info.get("marketCap"):
+        try:
+            fi = t.fast_info
+            info.setdefault("currency", fi["currency"])
+            if not info.get("sharesOutstanding"):
+                info["sharesOutstanding"] = _num(fi["shares"])
+            if not (info.get("currentPrice") or info.get("regularMarketPrice")):
+                info["currentPrice"] = _num(fi["lastPrice"])
+        except Exception as e:
+            if _is_rate_limit(e):
+                raise RateLimited(str(e))
+    has_size = info.get("marketCap") or (info.get("sharesOutstanding") and info.get("currentPrice"))
+    if not has_size and not (info.get("longName") or info.get("shortName")):
         return None
 
     def stmt(attr):

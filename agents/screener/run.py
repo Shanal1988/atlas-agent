@@ -56,7 +56,7 @@ def _print_results(name: str, description: str, universe_size: int, scored: int,
         return
 
     shown = results[:top]
-    header = f"  {'#':>3}  {'Ticker':<13}{'Name':<26}{'Score':>6}" + "".join(f"{h:>9}" for _, h, _ in _COLUMNS)
+    header = f"  {'#':>3}  {'Ticker':<16}{'Name':<26}{'Score':>6}" + "".join(f"{h:>9}" for _, h, _ in _COLUMNS)
     print(f"\n{header}")
     print(f"  {'-' * (len(header) - 2)}")
     for i, r in enumerate(shown, 1):
@@ -64,7 +64,7 @@ def _print_results(name: str, description: str, universe_size: int, scored: int,
         cols = "".join(f"{_fmt(r.get(m), k):>9}" for m, _, k in _COLUMNS)
         score = r.get("screen_score")
         score_str = f"{score:.1f}" if score is not None else "—"
-        print(f"  {i:>3}  {r['ticker']:<13}{name_str:<26}{score_str:>6}{cols}")
+        print(f"  {i:>3}  {r['ticker']:<16}{name_str:<26}{score_str:>6}{cols}")
     if len(results) > top:
         print(f"\n  ... {len(results) - top} more passed (use --top to show more, --save for the full list)")
 
