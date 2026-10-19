@@ -134,15 +134,23 @@ def fetch(symbol: str) -> dict | None:
 
 def fetch_all(symbols: list[str], delay: float = 0.5) -> dict:
     """Fetch and cache each symbol sequentially. Stops early (keeping what was
-    fetched) if Yahoo keeps rate-limiting."""
+    fetched) if Yahoo keeps rate-limiting or looks unreachable.
+
+    Empty results are not cached: yfinance reports a network failure the same
+    way as an unknown ticker, and caching it would hide the ticker for days."""
     results: dict = {}
     total = len(symbols)
+    empty_streak = 0
     for i, sym in enumerate(symbols, 1):
         for attempt in range(2):
             try:
                 payload = fetch(sym)
-                cache.put(sym, payload)
                 results[sym] = payload
+                if payload:
+                    cache.put(sym, payload)
+                    empty_streak = 0
+                else:
+                    empty_streak += 1
                 break
             except RateLimited:
                 if attempt == 0:
@@ -154,7 +162,12 @@ def fetch_all(symbols: list[str], delay: float = 0.5) -> dict:
                     return results
             except Exception as e:
                 print(f"\n  [yfinance] {sym}: {type(e).__name__} — skipped.")
+                empty_streak += 1
                 break
+        if empty_streak >= 10 and not any(results.values()):
+            print(f"\n  [yfinance] No data for the first {i} tickers — Yahoo Finance looks unreachable. "
+                  "Check your internet connection (or proxy/VPN) and re-run.")
+            return results
         if i % 10 == 0 or i == total:
             print(f"\r  [yfinance] Fetched {i}/{total}", end="", flush=True)
         time.sleep(delay)

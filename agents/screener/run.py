@@ -138,6 +138,11 @@ def run(preset: str | None = None, universes: list[str] | None = None,
             continue
         rows.append(row)
 
+    if not rows:
+        print("\n  No financial data for any ticker in this universe — nothing to screen.")
+        print("  If you're online, Yahoo may be blocking requests: wait a while, or raise --delay.")
+        return []
+
     # 4. Filter + rank
     passed, stats = criteria.apply_filters(rows, rules, missing=missing)
     if weights:
