@@ -1,35 +1,51 @@
-# Seed list (hand-picked subset). Run `python screen.py --refresh-universe europe_stoxx50` for full constituents.
 symbol,name
-ASML.AS,
-SAP.DE,
-MC.PA,
-OR.PA,
-RMS.PA,
-SIE.DE,
-TTE.PA,
-SAN.PA,
-AIR.PA,
-ALV.DE,
-SU.PA,
-AI.PA,
-DTE.DE,
-IBE.MC,
-ITX.MC,
-ENEL.MI,
-RACE.MI,
-BN.PA,
-CS.PA,
-EL.PA,
-DG.PA,
-SAF.PA,
-KER.PA,
-ADYEN.AS,
-PRX.AS,
-INGA.AS,
-MUV2.DE,
-IFX.DE,
-BAS.DE,
-BMW.DE,
-MBG.DE,
-ADS.DE,
-DB1.DE,
+ADS.DE,Adidas
+ADYEN.AS,Adyen
+AD.AS,Ahold Delhaize
+AI.PA,Air Liquide
+AIR.PA,Airbus
+ALV.DE,Allianz
+ABI.BR,Anheuser-Busch InBev
+ARGX.BR,Argenx
+ASML.AS,ASML Holding
+CS.PA,Axa
+BAS.DE,BASF
+BAYN.DE,Bayer
+BBVA.MC,BBVA
+SAN.MC,Banco Santander
+BMW.DE,BMW
+BNP.PA,BNP Paribas
+BN.PA,Danone
+DBK.DE,Deutsche Bank
+DB1.DE,Deutsche Börse
+DHL.DE,Deutsche Post
+DTE.DE,Deutsche Telekom
+ENEL.MI,Enel
+ENI.MI,Eni
+EL.PA,EssilorLuxottica
+RACE.MI,Ferrari
+RMS.PA,Hermès
+IBE.MC,Iberdrola
+ITX.MC,Inditex
+IFX.DE,Infineon Technologies
+INGA.AS,ING Group
+ISP.MI,Intesa Sanpaolo
+OR.PA,L'Oréal
+MC.PA,LVMH Moët Hennessy Louis Vuitton
+MBG.DE,Mercedes-Benz Group
+MUV2.DE,Munich Re
+NDA-FI.HE,Nordea
+PRX.AS,Prosus
+RHM.DE,Rheinmetall
+SAF.PA,Safran
+SGO.PA,Saint-Gobain
+SAN.PA,Sanofi
+SAP.DE,SAP
+SU.PA,Schneider Electric
+SIE.DE,Siemens
+ENR.DE,Siemens Energy
+TTE.PA,TotalEnergies
+DG.PA,Vinci SA
+UCG.MI,UniCredit
+VOW.DE,Volkswagen Group
+WKL.AS,Wolters Kluwer

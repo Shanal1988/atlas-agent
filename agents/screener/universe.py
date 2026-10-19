@@ -4,7 +4,7 @@
 # exchange suffix included). Lines starting with '#' are comments. Some
 # universes ship as small hand-picked seed lists; `refresh()` replaces them
 # with full index constituents scraped from free public sources (Wikipedia,
-# NSE archives). Nothing here needs an API key.
+# NSE archives, Nasdaq). Nothing here needs an API key.
 
 import csv
 import io
@@ -24,9 +24,9 @@ SOURCES = {
         "url": _WIKI + "List_of_S%26P_500_companies", "symbol_cols": ["Symbol"],
         "name_cols": ["Security"], "suffix": "", "min_rows": 400,
     },
-    "us_nasdaq100": {
-        "url": _WIKI + "Nasdaq-100", "symbol_cols": ["Ticker", "Symbol"],
-        "name_cols": ["Company", "Security"], "suffix": "", "min_rows": 90,
+    "us_nasdaq100": {  # Wikipedia dropped its constituents table; Nasdaq's own API is free
+        "json_url": "https://api.nasdaq.com/api/quote/list-type/nasdaq100",
+        "symbol_cols": ["symbol"], "name_cols": ["companyName"], "suffix": "", "min_rows": 90,
     },
     "us_midcap400": {
         "url": _WIKI + "List_of_S%26P_400_companies", "symbol_cols": ["Symbol", "Ticker symbol"],
@@ -154,7 +154,11 @@ def refresh(name: str) -> bool:
         print(f"  [Universe] No download source for '{name}' — edit data/universe/{name}.csv by hand.")
         return False
     try:
-        if "csv_url" in src:
+        if "json_url" in src:
+            resp = requests.get(src["json_url"], headers=_UA, timeout=20)
+            resp.raise_for_status()
+            tables = [pd.DataFrame(resp.json()["data"]["data"]["rows"])]
+        elif "csv_url" in src:
             resp = requests.get(src["csv_url"], headers=_UA, timeout=20)
             resp.raise_for_status()
             tables = [pd.read_csv(io.StringIO(resp.text))]

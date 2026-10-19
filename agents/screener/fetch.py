@@ -88,12 +88,29 @@ def fetch(symbol: str) -> dict | None:
 
     t = yf.Ticker(symbol)
     try:
-        info = t.info or {}
+        info = dict(t.info or {})
     except Exception as e:
         if _is_rate_limit(e):
             raise RateLimited(str(e))
-        return None
-    if not info.get("marketCap") and not (info.get("longName") or info.get("shortName")):
+        info = {}
+
+    # .info often lacks market cap (always for NSE) or fails outright with a
+    # 401 crumb error; fast_info reads the chart API and needs no crumb. Take
+    # shares and raw quote price from it rather than its market cap, so
+    # metrics._market_cap applies the same pence/cents handling either way.
+    if not info.get("marketCap"):
+        try:
+            fi = t.fast_info
+            info.setdefault("currency", fi["currency"])
+            if not info.get("sharesOutstanding"):
+                info["sharesOutstanding"] = _num(fi["shares"])
+            if not (info.get("currentPrice") or info.get("regularMarketPrice")):
+                info["currentPrice"] = _num(fi["lastPrice"])
+        except Exception as e:
+            if _is_rate_limit(e):
+                raise RateLimited(str(e))
+    has_size = info.get("marketCap") or (info.get("sharesOutstanding") and info.get("currentPrice"))
+    if not has_size and not (info.get("longName") or info.get("shortName")):
         return None
 
     def stmt(attr):
@@ -134,15 +151,23 @@ def fetch(symbol: str) -> dict | None:
 
 def fetch_all(symbols: list[str], delay: float = 0.5) -> dict:
     """Fetch and cache each symbol sequentially. Stops early (keeping what was
-    fetched) if Yahoo keeps rate-limiting."""
+    fetched) if Yahoo keeps rate-limiting or looks unreachable.
+
+    Empty results are not cached: yfinance reports a network failure the same
+    way as an unknown ticker, and caching it would hide the ticker for days."""
     results: dict = {}
     total = len(symbols)
+    empty_streak = 0
     for i, sym in enumerate(symbols, 1):
         for attempt in range(2):
             try:
                 payload = fetch(sym)
-                cache.put(sym, payload)
                 results[sym] = payload
+                if payload:
+                    cache.put(sym, payload)
+                    empty_streak = 0
+                else:
+                    empty_streak += 1
                 break
             except RateLimited:
                 if attempt == 0:
@@ -154,7 +179,12 @@ def fetch_all(symbols: list[str], delay: float = 0.5) -> dict:
                     return results
             except Exception as e:
                 print(f"\n  [yfinance] {sym}: {type(e).__name__} — skipped.")
+                empty_streak += 1
                 break
+        if empty_streak >= 10 and not any(results.values()):
+            print(f"\n  [yfinance] No data for the first {i} tickers — Yahoo Finance looks unreachable. "
+                  "Check your internet connection (or proxy/VPN) and re-run.")
+            return results
         if i % 10 == 0 or i == total:
             print(f"\r  [yfinance] Fetched {i}/{total}", end="", flush=True)
         time.sleep(delay)
