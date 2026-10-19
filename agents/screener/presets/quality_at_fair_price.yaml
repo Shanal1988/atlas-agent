@@ -1,0 +1,20 @@
+description: >
+  Buffett/Munger quality at a fair price — consistently high ROIC, durable free
+  cash flow, little debt or dilution, and a reasonable earnings multiple.
+universes: [us_sp500, uk_ftse100, europe_stoxx50]
+missing: fail
+filters:
+  - market_cap_usd >= 5B
+  - sector not in Financial Services, Real Estate
+  - roic_min >= 12%
+  - roic_avg >= 15%
+  - fcf_positive_years >= 3
+  - net_debt_to_ebitda <= 2
+  - share_dilution <= 2%
+  - pe > 0
+  - pe <= 25
+rank:
+  roic_avg: 0.3
+  fcf_yield: 0.3
+  pe: -0.2
+  operating_margin: 0.2

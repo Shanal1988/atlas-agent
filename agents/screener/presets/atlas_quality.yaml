@@ -1,0 +1,12 @@
+description: >
+  Atlas house screen — ranks on the same deterministic Quality Screen and
+  Feroldi financial points the full pipeline awards (no LLM items).
+universes: [us_sp500, us_midcap400]
+missing: fail
+filters:
+  - market_cap_usd >= 1B
+  - quality_score >= 60%
+  - feroldi_fin_score >= 70%
+rank:
+  quality_score: 0.5
+  feroldi_fin_score: 0.5

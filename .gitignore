@@ -12,3 +12,4 @@ data/transcripts/
 data/vectorstore/
 fine_tuning/training_data/
 data/style_examples/
+data/screener/

@@ -1,0 +1,19 @@
+description: >
+  Adam Seessel digital compounders — fast-growing, high-return businesses that
+  clear Atlas's growth-adjusted OEY hurdle (3.5% elite / 5% mature) on EV.
+universes: [us_sp500, us_nasdaq100]
+missing: fail
+filters:
+  - market_cap_usd >= 2B
+  - sector not in Financial Services, Real Estate, Utilities
+  - revenue_cagr >= 12%
+  - roic_avg >= 15%
+  - gross_margin >= 40%
+  - fcf_margin >= 10%
+  - oey_passes == true
+rank:
+  roic_avg: 0.25
+  revenue_cagr: 0.25
+  oey: 0.25
+  gross_margin: 0.15
+  operating_margin_change: 0.10

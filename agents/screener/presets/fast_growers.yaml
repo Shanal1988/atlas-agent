@@ -1,0 +1,16 @@
+description: >
+  Peter Lynch fast growers — 20-50% EPS growth backed by revenue growth,
+  bought at a PEG of 1.5 or less with a manageable balance sheet.
+universes: [us_sp500, us_midcap400]
+missing: fail
+filters:
+  - eps_cagr >= 20%
+  - eps_cagr <= 50%
+  - revenue_cagr >= 15%
+  - peg > 0
+  - peg <= 1.5
+  - net_debt_to_ebitda <= 2
+rank:
+  peg: -0.4
+  eps_cagr: 0.3
+  roic_avg: 0.3
