@@ -152,12 +152,13 @@ python screen.py --list-metrics
 | Preset | Idea |
 |--------|------|
 | `seessel_compounders` | 12%+ revenue CAGR, 15%+ ROIC, clears Atlas's growth-adjusted OEY hurdle |
+| `seessel_compounders_smallcap` | Same tests with a $100M floor instead of $2B, on UK AIM + FTSE 250 |
 | `quality_at_fair_price` | Buffett/Munger: consistently high ROIC, FCF every year, low debt/dilution, P/E ≤ 25 |
 | `hidden_gems` | $300M–$10B caps, 20%+ revenue CAGR still running, net cash |
 | `fast_growers` | Lynch: 20–50% EPS CAGR at PEG ≤ 1.5 |
 | `atlas_quality` | Ranks on the pipeline's own deterministic Quality Screen + Feroldi financial points |
 
-- **Universes** are CSVs in `data/universe/` (S&P 500/400/600, Nasdaq-100, FTSE 100/250, Euro Stoxx 50, Nifty 500). Some ship as small seed lists; `--refresh-universe` replaces them with full constituents from Wikipedia / NSE.
+- **Universes** are CSVs in `data/universe/` (S&P 500/400/600, Nasdaq-100, FTSE 100/250, UK AIM, Euro Stoxx 50, Nifty 500). Some ship as small seed lists; `--refresh-universe` replaces them with full constituents from Wikipedia / NSE / the LSE instrument list (`uk_aim` = every AIM-traded share, ~600 names).
 - **Cache**: each ticker is fetched once and cached in `data/screener/cache.db` for 7 days (`--max-age-days`), so repeat screens are instant. The first run over ~500 tickers takes roughly 15–20 minutes; use `--limit 50` for a quick trial.
 - **Metrics** are in USD and fractions (0.15 = 15%). ROIC/ROCE and OEY use the same formulas as the main pipeline (`compute_oey`, `discovery._roce_roic_yfinance`).
 - Presets are YAML files in `agents/screener/presets/` — copy one to make your own. Rules look like `metric op value` (`>=`, `<`, `==`, `in`, `not in`; values accept `15%`, `2B`, `true`).
