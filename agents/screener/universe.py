@@ -4,7 +4,7 @@
 # exchange suffix included). Lines starting with '#' are comments. Some
 # universes ship as small hand-picked seed lists; `refresh()` replaces them
 # with full index constituents scraped from free public sources (Wikipedia,
-# NSE archives, Nasdaq). Nothing here needs an API key.
+# NSE archives, Nasdaq, the LSE instrument list). Nothing here needs an API key.
 
 import csv
 import io
@@ -44,6 +44,11 @@ SOURCES = {
         "url": _WIKI + "FTSE_250_Index", "symbol_cols": ["Ticker", "EPIC"],
         "name_cols": ["Company"], "suffix": ".L", "min_rows": 200,
     },
+    "uk_aim": {  # every AIM-traded share, from the LSE's monthly instrument list (xlsx)
+        "lse_xlsx": "https://docs.londonstockexchange.com/reports/instruments/latest.json",
+        "sheet": "1.1 Shares", "market": "AIM",
+        "symbol_cols": ["TIDM"], "name_cols": ["Issuer Name"], "suffix": ".L", "min_rows": 400,
+    },
     "europe_stoxx50": {
         "url": _WIKI + "EURO_STOXX_50", "symbol_cols": ["Ticker"],
         "name_cols": ["Name", "Company"], "suffix": None, "min_rows": 45,
@@ -61,6 +66,30 @@ REGIONS = {
     "Europe": ["europe_stoxx50"],
     "India":  ["india_nifty500"],
 }
+
+def _lse_instruments(src: dict):
+    """Shares from the LSE instrument list, filtered to one market (e.g. AIM).
+
+    The report index JSON points at the current xlsx; the sheet has a few
+    title rows above the real header, which starts with 'TIDM'."""
+    import pandas as pd
+    import requests
+
+    index = requests.get(src["lse_xlsx"], headers=_UA, timeout=20)
+    index.raise_for_status()
+    link = index.json()["Data"][0]["downloadLink"]
+    resp = requests.get(link, headers=_UA, timeout=60)
+    resp.raise_for_status()
+    import warnings
+    with warnings.catch_warnings():  # the LSE workbook has no default style; harmless
+        warnings.simplefilter("ignore", UserWarning)
+        raw = pd.read_excel(io.BytesIO(resp.content), sheet_name=src["sheet"], header=None)
+    header_row = next(i for i, v in raw.iloc[:, 0].items() if str(v).strip() == "TIDM")
+    df = raw.iloc[header_row + 1:].copy()
+    df.columns = [str(c).strip() for c in raw.iloc[header_row]]
+    df = df[df["LSE Market"].astype(str).str.strip().str.upper() == src["market"]]
+    return df.drop_duplicates("TIDM")
+
 
 # Euro Stoxx 50 rows list a main listing venue rather than a Yahoo suffix.
 _EU_VENUE_SUFFIX = {
@@ -154,7 +183,9 @@ def refresh(name: str) -> bool:
         print(f"  [Universe] No download source for '{name}' — edit data/universe/{name}.csv by hand.")
         return False
     try:
-        if "json_url" in src:
+        if "lse_xlsx" in src:
+            tables = [_lse_instruments(src)]
+        elif "json_url" in src:
             resp = requests.get(src["json_url"], headers=_UA, timeout=20)
             resp.raise_for_status()
             tables = [pd.DataFrame(resp.json()["data"]["data"]["rows"])]
